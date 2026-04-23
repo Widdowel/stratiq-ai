@@ -59,17 +59,40 @@ type StrategyDescriptor = {
   ) => ScalpSignal | null
 }
 
+/**
+ * The EURUSD VWAP pullback strategy was evaluated across v1-v7 calibrations
+ * and consistently produced negative expectancy on 5m scalps:
+ *
+ *   v7 sample: 5 trades, 20% winrate, MFE p50 = 0.35R.
+ *
+ * The pullbacks touch VWAP/EMA21 but reversals are weak - price dies after
+ * 0.3-0.4R favorable excursion. This isn't a calibration issue, it's a
+ * fundamental mismatch between the concept and the 5m timeframe on EURUSD
+ * in the current regime.
+ *
+ * Disabled until either:
+ *   - a new EUR strategy concept is designed, or
+ *   - the timeframe is moved to 15m / 30m where pullbacks run further.
+ *
+ * To re-enable for experimentation, flip ENABLE_EURUSD_STRATEGY to true.
+ */
+const ENABLE_EURUSD_STRATEGY = false
+
 const STRATEGY_REGISTRY: StrategyDescriptor[] = [
   {
     id: "BTC_BREAKOUT_RETEST",
     symbols: ["BTCUSDT"],
     run: runBtcBreakoutRetest
   },
-  {
-    id: "EURUSD_VWAP_PULLBACK",
-    symbols: ["EURUSD", "GBPUSD"],
-    run: runEurusdVwapPullback
-  },
+  ...(ENABLE_EURUSD_STRATEGY
+    ? [
+        {
+          id: "EURUSD_VWAP_PULLBACK" as const,
+          symbols: ["EURUSD", "GBPUSD"],
+          run: runEurusdVwapPullback
+        }
+      ]
+    : []),
   {
     id: "XAUUSD_LIQUIDITY_SWEEP",
     symbols: ["XAUUSD", "XAUUSDT"],

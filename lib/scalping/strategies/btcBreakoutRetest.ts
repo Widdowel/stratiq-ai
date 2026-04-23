@@ -54,10 +54,10 @@ import type { ScalpSignal } from "@/lib/scalping/types"
 CONFIG
 ========================= */
 
-const CONFIDENCE_FLOOR = 83 // raised from 80 - filter out the noisiest setups
-const SL_BUFFER_PCT = 0.0025 // 0.25% beyond retest wick - v5 MAE p25=-0.96 means
-                              // 25% of trades wicked to full SL; widening by 0.1%
-                              // gives room without blowing up worst-case loss
+const CONFIDENCE_FLOOR = 85 // raised from 83 - v7 showed 3 SL in 10 trades at floor 83
+                             // with MAE down to -1.5R. Tightening to cut the weakest setups.
+const SL_BUFFER_PCT = 0.003 // 0.3% - v7 MAE p25 was -1.07 (25% of trades wicked BEYOND
+                             // our -1R SL). Another 0.05% helps survive the wicks.
 const RR_TARGET = 0.5 // ultra-scalp - MFE p50 is 0.80R so 0.5R hits ~70% of the time
 const BE_TRIGGER_FRACTION = 0.3 // SL to entry at +0.3R, before the 0.5R TP
 const BREAKOUT_LOOKBACK = 25 // how many 15m bars back to check for the breakout
