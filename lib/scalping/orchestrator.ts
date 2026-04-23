@@ -78,12 +78,32 @@ type StrategyDescriptor = {
  */
 const ENABLE_EURUSD_STRATEGY = false
 
+/**
+ * BTCUSDT breakout+retest evaluated on a 5000-bar (17 days) backtest:
+ *   51 trades, 52.9% winrate, +0.49R avg win, -1.00R avg loss
+ *   Real expectancy: -0.033R per trade (cumulative -1.68R)
+ *   Profit factor: 0.89 (slightly negative edge)
+ *
+ * Statistically meaningful sample (51 trades, decent confidence interval),
+ * and the result is "no edge". Not enough TPs hit because BTC 5m moves
+ * past 0.5R only 53% of the time but losses are full -1R.
+ *
+ * Disabled to avoid bleeding on a non-edge strategy. Could be revisited
+ * with a different concept (e.g. pullback in trend on 15m, or order-block
+ * reversion).
+ */
+const ENABLE_BTCUSDT_STRATEGY = false
+
 const STRATEGY_REGISTRY: StrategyDescriptor[] = [
-  {
-    id: "BTC_BREAKOUT_RETEST",
-    symbols: ["BTCUSDT"],
-    run: runBtcBreakoutRetest
-  },
+  ...(ENABLE_BTCUSDT_STRATEGY
+    ? [
+        {
+          id: "BTC_BREAKOUT_RETEST" as const,
+          symbols: ["BTCUSDT"],
+          run: runBtcBreakoutRetest
+        }
+      ]
+    : []),
   ...(ENABLE_EURUSD_STRATEGY
     ? [
         {

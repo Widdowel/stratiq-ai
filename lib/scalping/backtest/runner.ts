@@ -313,7 +313,13 @@ function summarize(symbol: string, trades: BacktestTrade[]): BacktestResult {
     ? Math.abs(losses.reduce((s, t) => s + t.pnlR, 0) / losses.length)
     : 0
   const winRate = wins.length / trades.length
-  const expectancyR = winRate * avgWinR - (1 - winRate) * avgLossR
+
+  // True expectancy = mean R per trade across ALL trades, including
+  // break-even (0R) ones. The previous formula treated BE as losses
+  // which underestimated real performance by ~0.1R for strategies
+  // with significant BE counts.
+  const totalR = trades.reduce((s, t) => s + t.pnlR, 0)
+  const expectancyR = totalR / trades.length
 
   const grossWin = wins.reduce((s, t) => s + t.pnlR, 0)
   const grossLoss = Math.abs(losses.reduce((s, t) => s + t.pnlR, 0))
