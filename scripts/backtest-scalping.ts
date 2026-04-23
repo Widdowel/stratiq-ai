@@ -115,6 +115,19 @@ async function backtestOne(
     const beStop = result.trades.filter((t) => t.closeReason === "BE_STOP").length
     const timeout = result.trades.filter((t) => t.closeReason === "TIMEOUT").length
     console.log(`  exits         : TP=${tp} SL=${sl} BE=${beStop} TIMEOUT=${timeout}`)
+
+    // MFE/MAE distribution - tells us the TRUE optimal TP/SL for this data set.
+    const mfes = result.trades.map((t) => t.mfeR).sort((a, b) => a - b)
+    const maes = result.trades.map((t) => t.maeR).sort((a, b) => a - b) // negative, sorted ascending = worst first
+    const pct = (arr: number[], q: number) => arr[Math.floor(arr.length * q)]
+    console.log(`  MFE (peak R+) : p25=${pct(mfes, 0.25)?.toFixed(2)} p50=${pct(mfes, 0.5)?.toFixed(2)} p75=${pct(mfes, 0.75)?.toFixed(2)} max=${mfes[mfes.length - 1]?.toFixed(2)}`)
+    console.log(`  MAE (worst R-): p25=${pct(maes, 0.25)?.toFixed(2)} p50=${pct(maes, 0.5)?.toFixed(2)} p75=${pct(maes, 0.75)?.toFixed(2)} min=${maes[0]?.toFixed(2)}`)
+
+    // How many trades would have been winners at various TP levels?
+    for (const testTp of [0.5, 0.7, 1.0, 1.3, 1.6]) {
+      const wouldHit = mfes.filter((m) => m >= testTp).length
+      console.log(`    TP ${testTp}R would hit: ${wouldHit}/${result.trades.length} = ${((wouldHit / result.trades.length) * 100).toFixed(0)}%`)
+    }
   }
 }
 

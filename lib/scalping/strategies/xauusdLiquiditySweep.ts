@@ -50,7 +50,7 @@ import type { ScalpSignal } from "@/lib/scalping/types"
 
 const CONFIDENCE_FLOOR = 80
 const SL_BUFFER_USD = 0.8
-const RR_TARGET = 1.0 // lowered from 1.5 - XAU scalps: sweep reverses ~1R, rarely 1.5R
+const RR_TARGET = 0.8 // scalp TP - XAU sweep reverses ~0.8R typically
 const BE_TRIGGER_FRACTION = 0.4 // slightly earlier BE to lock in most-of-the-way wins
 const MAX_ATR_USD = 2.5
 

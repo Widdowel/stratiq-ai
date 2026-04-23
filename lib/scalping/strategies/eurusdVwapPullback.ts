@@ -51,7 +51,7 @@ import type { ScalpSignal } from "@/lib/scalping/types"
 const CONFIDENCE_FLOOR = 80
 const PIP = 0.0001 // EURUSD pip
 const SL_BUFFER_PIPS = 4 // widened from 2 - EUR 5m ATR ~3-4 pips, 2 was wick-vulnerable
-const RR_TARGET = 1.0 // lowered from 1.5 - 5m EUR scalp: TP 1R hits, 1.5R rarely
+const RR_TARGET = 0.8 // scalp TP - 5m EUR: 0.8R hits reliably, 1R rarely
 const BE_TRIGGER_FRACTION = 0.5
 const PULLBACK_TOLERANCE_PIPS = 5
 const MIN_ADX = 18

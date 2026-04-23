@@ -44,6 +44,10 @@ export type BacktestTrade = {
   pnlR: number
   closeReason: "TP" | "SL" | "BE_STOP" | "TIMEOUT"
   barsHeld: number
+  /** Max favorable excursion (best unrealized profit in R during the trade). */
+  mfeR: number
+  /** Max adverse excursion (worst unrealized loss in R during the trade). */
+  maeR: number
 }
 
 export type BacktestResult = {
@@ -110,6 +114,8 @@ function simulateTrade(
   const initialRisk = Math.abs(signal.entry - signal.sl)
   let activeSl = signal.sl
   let beApplied = false
+  let mfeR = 0 // max unrealized win in R
+  let maeR = 0 // max unrealized loss in R (negative)
   const end = Math.min(startIdx + BAR_TIMEOUT, futureBars5m.length)
 
   for (let i = startIdx; i < end; i++) {
@@ -117,8 +123,20 @@ function simulateTrade(
     const h = safeNumber(bar.high)
     const l = safeNumber(bar.low)
 
+    // Track MFE / MAE first (so exit events are tracked too).
     if (signal.direction === "BUY") {
-      // Check SL/BE first - conservative ordering.
+      const favHigh = (h - signal.entry) / initialRisk
+      const advLow = (l - signal.entry) / initialRisk
+      if (favHigh > mfeR) mfeR = favHigh
+      if (advLow < maeR) maeR = advLow
+    } else {
+      const favLow = (signal.entry - l) / initialRisk
+      const advHigh = (signal.entry - h) / initialRisk
+      if (favLow > mfeR) mfeR = favLow
+      if (advHigh < maeR) maeR = advHigh
+    }
+
+    if (signal.direction === "BUY") {
       if (l <= activeSl) {
         const closePrice = activeSl
         const pnlR = (closePrice - signal.entry) / initialRisk
@@ -127,7 +145,9 @@ function simulateTrade(
           closedAt: bar.openTime ?? i,
           pnlR,
           closeReason: beApplied && activeSl === signal.entry ? "BE_STOP" : "SL",
-          barsHeld: i - startIdx + 1
+          barsHeld: i - startIdx + 1,
+          mfeR,
+          maeR
         }
       }
       if (h >= signal.tp) {
@@ -137,7 +157,9 @@ function simulateTrade(
           closedAt: bar.openTime ?? i,
           pnlR,
           closeReason: "TP",
-          barsHeld: i - startIdx + 1
+          barsHeld: i - startIdx + 1,
+          mfeR,
+          maeR
         }
       }
       if (!beApplied && h >= signal.breakEvenTrigger) {
@@ -153,7 +175,9 @@ function simulateTrade(
           closedAt: bar.openTime ?? i,
           pnlR,
           closeReason: beApplied && activeSl === signal.entry ? "BE_STOP" : "SL",
-          barsHeld: i - startIdx + 1
+          barsHeld: i - startIdx + 1,
+          mfeR,
+          maeR
         }
       }
       if (l <= signal.tp) {
@@ -163,7 +187,9 @@ function simulateTrade(
           closedAt: bar.openTime ?? i,
           pnlR,
           closeReason: "TP",
-          barsHeld: i - startIdx + 1
+          barsHeld: i - startIdx + 1,
+          mfeR,
+          maeR
         }
       }
       if (!beApplied && l <= signal.breakEvenTrigger) {
@@ -173,7 +199,6 @@ function simulateTrade(
     }
   }
 
-  // Timeout - close at the last close of the simulation window.
   const lastBar = futureBars5m[end - 1]
   const lastClose = safeNumber(lastBar?.close)
   const pnlR =
@@ -186,7 +211,9 @@ function simulateTrade(
     closedAt: lastBar?.openTime ?? end,
     pnlR,
     closeReason: "TIMEOUT",
-    barsHeld: end - startIdx
+    barsHeld: end - startIdx,
+    mfeR,
+    maeR
   }
 }
 
