@@ -52,7 +52,9 @@ const CONFIDENCE_FLOOR = 80
 const SL_BUFFER_USD = 0.8
 const RR_TARGET = 0.6 // scalp - XAU MFE p50 = 0.98R so 0.6R captures reliably
 const BE_TRIGGER_FRACTION = 0.3
-const MAX_ATR_USD = 2.5
+const MAX_ATR_USD = 4.0 // raised from 2.5 - v6 diagnostic showed atr_not_extreme
+                        // blocking 349/380 post-preflight bars (92%). London XAU
+                        // regularly runs 3-4 ATR on good setup days.
 
 function safeNumber(value: unknown): number {
   const n = Number(value)

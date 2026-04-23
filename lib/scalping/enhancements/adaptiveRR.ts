@@ -16,13 +16,18 @@ upgrades the TP when the confidence clears the higher tiers.
 
 import type { ScalpSignal } from "@/lib/scalping/types"
 
-// Very modest bumps only for high-conviction signals. Base RR is set per
-// strategy and optimized on the MFE distribution; adaptive adds a small
-// reward for the strongest setups without pushing TP out of reach.
+// v6 analysis showed adaptiveRR consistently pushed TPs beyond the MFE
+// distribution. Strategy-native RR was calibrated on MFE data but adaptive
+// silently bumped the target beyond reach for 87+ confidence signals,
+// sabotaging the whole TP logic.
+//
+// Disabled: all tiers return 0 so `if (newRR <= signal.rr) return signal`
+// short-circuits and no bump ever occurs. Keep the type/shape so the
+// feature can be re-enabled later with better calibration.
 export const RR_TIERS: { min: number; rr: number }[] = [
-  { min: 93, rr: 1.0 }, // only elite signals get 1R
-  { min: 88, rr: 0.7 }, // moderate bump
-  { min: 80, rr: 0.5 } // baseline matches strategy defaults
+  { min: 93, rr: 0 },
+  { min: 88, rr: 0 },
+  { min: 80, rr: 0 }
 ]
 
 export function getAdaptiveRR(confidence: number): number {
