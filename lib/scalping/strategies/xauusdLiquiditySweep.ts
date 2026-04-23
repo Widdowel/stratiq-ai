@@ -142,14 +142,43 @@ function evaluateXauusd(
   if (!asianHigh || !asianLow) return xauPreflightFail("NO_ASIAN_RANGE")
 
   // -------- Sweep + reclaim detection --------
-  const sweepHigh = lastHigh > asianHigh && lastClose <= asianHigh
-  const sweepLow = lastLow < asianLow && lastClose >= asianLow
+  // Previously only the CURRENT bar was checked for sweep+reclaim, which
+  // rejected 97% of bars. Now we scan the last SWEEP_LOOKBACK bars for a
+  // wick that pierced the Asian range, and confirm reclaim on the current
+  // close. This captures the typical "sweep then reverse" pattern that
+  // often completes over 2-3 bars on XAU.
+  const SWEEP_LOOKBACK = 3
 
-  const sweepDirection: "LONG" | "SHORT" | null = sweepLow
-    ? "LONG"
-    : sweepHigh
-    ? "SHORT"
-    : null
+  let sweepDirection: "LONG" | "SHORT" | null = null
+  let sweepWickLow = lastLow
+  let sweepWickHigh = lastHigh
+  let sweepBarIdx = candles5m.length - 1
+
+  for (let i = candles5m.length - SWEEP_LOOKBACK; i < candles5m.length; i++) {
+    if (i < 0) continue
+    const bar = candles5m[i]
+    const h = safeNumber(bar.high)
+    const l = safeNumber(bar.low)
+
+    // Did this bar's LOW pierce below asianLow?
+    if (l < asianLow && lastClose >= asianLow) {
+      if (!sweepDirection || l < sweepWickLow) {
+        sweepDirection = "LONG"
+        sweepWickLow = l
+        sweepBarIdx = i
+      }
+    }
+
+    // Did this bar's HIGH pierce above asianHigh?
+    if (h > asianHigh && lastClose <= asianHigh) {
+      // Prefer the deepest sweep if multiple bars qualify.
+      if (!sweepDirection || h > sweepWickHigh) {
+        sweepDirection = "SHORT"
+        sweepWickHigh = h
+        sweepBarIdx = i
+      }
+    }
+  }
 
   if (!sweepDirection) return xauPreflightFail("NO_SWEEP_DETECTED")
 
@@ -183,18 +212,19 @@ function evaluateXauusd(
     gate("asian_range_found", asianHigh > 0 && asianLow > 0, "Could not compute Asian range"),
     gate("sweep_detected", !!sweepDirection, "Price must wick through Asian high/low"),
     gate("rejection_pattern", rejectionAligned, "Pin bar or engulfing on sweep bar"),
-    gate("atr_not_extreme", atrOk, `ATR=${atr5m.toFixed(2)} > ${MAX_ATR_USD}`),
-    gate("same_bar_reclaim", sweepDirection === "LONG" ? lastClose > asianLow : lastClose < asianHigh, "Close must be back inside range")
+    gate("atr_not_extreme", atrOk, `ATR=${atr5m.toFixed(2)} > ${MAX_ATR_USD}`)
   ]
 
   // -------- Factors --------
   const sweepDepth =
     sweepDirection === "LONG"
-      ? asianLow - lastLow
-      : lastHigh - asianHigh
+      ? asianLow - sweepWickLow
+      : sweepWickHigh - asianHigh
 
+  const sweepFreshness = candles5m.length - 1 - sweepBarIdx // 0 = current bar, 2 = 3 bars ago
   const factors = [
     factor("sweep_depth", Math.min(15, Math.max(0, sweepDepth / 0.3 * 5)), `Depth=$${sweepDepth.toFixed(2)}`),
+    factor("sweep_fresh", sweepFreshness === 0 ? 5 : sweepFreshness === 1 ? 3 : 1, `Bar ${sweepFreshness} ago`),
     factor("reclaim_strength", sweepDirection === "LONG" ? Math.min(10, (lastClose - asianLow) / 0.5 * 3) : Math.min(10, (asianHigh - lastClose) / 0.5 * 3), "How deeply price closed back in range"),
     factor("rejection_pattern", rejectionAligned ? 12 : 0, "PA confirmation"),
     factor("vp_poc_nearby", nearPOC ? 6 : 0, `POC=${vp.poc.toFixed(2)}`),
@@ -221,12 +251,14 @@ function evaluateXauusd(
   let sl: number
   let tp: number
 
+  // SL goes beyond the sweep wick, not the current bar. When the sweep is
+  // from a prior bar, using lastLow/lastHigh would set too tight an SL.
   if (sweepDirection === "LONG") {
-    sl = lastLow - SL_BUFFER_USD
+    sl = sweepWickLow - SL_BUFFER_USD
     const risk = entry - sl
     tp = entry + risk * RR_TARGET
   } else {
-    sl = lastHigh + SL_BUFFER_USD
+    sl = sweepWickHigh + SL_BUFFER_USD
     const risk = sl - entry
     tp = entry - risk * RR_TARGET
   }

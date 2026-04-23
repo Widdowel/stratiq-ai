@@ -58,10 +58,10 @@ const CONFIDENCE_FLOOR = 80
 const SL_BUFFER_PCT = 0.0015 // 0.15% beyond retest wick
 const RR_TARGET = 1.8
 const BE_TRIGGER_FRACTION = 0.5 // move SL to BE at +0.5R
-const BREAKOUT_LOOKBACK = 5 // how many 15m bars back to check for the breakout
-const RETEST_TOLERANCE_PCT = 0.002 // price must come back within 0.2% of broken level
+const BREAKOUT_LOOKBACK = 15 // how many 15m bars back to check for the breakout
+const RETEST_TOLERANCE_PCT = 0.003 // price must come back within 0.3% of broken level
 const MIN_ADX = 20
-const MIN_RVOL = 1.5 // volume >= 1.5x avg(20) on breakout bar
+const MIN_RVOL = 1.4 // volume >= 1.4x avg(20) on breakout bar
 
 function safeNumber(value: unknown): number {
   const n = Number(value)
@@ -208,7 +208,6 @@ function evaluateBtc(
   const gates = [
     gate("session_window", isInScalpWindow(symbol, now), "BTCUSDT golden window is 13:00-21:00 UTC"),
     gate("htf_bias_clear", true, `EMA20=${ema20h.toFixed(2)} EMA50=${ema50h.toFixed(2)}`),
-    gate("squeeze_detected", squeeze, "BB bandwidth should be in bottom quantile"),
     gate("breakout_found", !!breakout, "No qualifying breakout bar in lookback"),
     gate("price_at_retest", priceReturnedToLevel && correctSide, "Price must revisit broken level"),
     gate("rejection_pattern", rejectionAligned, "Need pin bar or engulfing in direction"),
@@ -218,7 +217,7 @@ function evaluateBtc(
   // -------- Factors --------
   const factors = [
     factor("htf_bias", 15, `1h EMA20 vs EMA50: ${htfBias}`),
-    factor("squeeze_strength", squeeze ? 10 : 0, "15m BB contraction"),
+    factor("squeeze_strength", squeeze ? 12 : 0, squeeze ? "15m BB contraction confirmed (bonus)" : "No squeeze, relying on breakout + retest alone"),
     factor("breakout_quality", breakout ? 12 : 0, `Broken at ${breakout?.level.toFixed(2)}`),
     factor("retest_clean", priceReturnedToLevel && correctSide ? 8 : 0, `${(retestDistance * 100).toFixed(2)}% from level`),
     factor("rejection", rejectionAligned ? 10 : 0, "Price action confirmation"),

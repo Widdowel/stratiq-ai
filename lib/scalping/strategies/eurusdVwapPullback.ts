@@ -159,24 +159,56 @@ function evaluateEurusd(
     Math.max(...recent.map((c) => safeNumber(c.high))) >= vwap * 0.9999
 
   // -------- Rejection candle --------
-  const bullishRejection =
+  // Strong rejection = pin bar or engulfing.
+  // Weak rejection fallback = simply a candle that closed in the trend direction
+  //   AFTER at least one opposing candle in the pullback. This is a scalping-
+  //   grade confirmation, not a swing-grade one, so we accept both tiers.
+  const strongBullishRejection =
     isBullishPinBar(candles5m) || isBullishEngulfing(candles5m)
-  const bearishRejection =
+  const strongBearishRejection =
     isBearishPinBar(candles5m) || isBearishEngulfing(candles5m)
-  const rejectionAligned = bias15m === "LONG" ? bullishRejection : bearishRejection
 
-  // -------- Stochastic cross --------
-  // Use the last and prior stoch reading to detect a cross in the right direction.
+  const lastCandle = candles5m[candles5m.length - 1]
+  const weakBullishRejection =
+    lastCandle.close > lastCandle.open &&
+    recent.some((c) => c.close < c.open)
+  const weakBearishRejection =
+    lastCandle.close < lastCandle.open &&
+    recent.some((c) => c.close > c.open)
+
+  const rejectionAligned =
+    bias15m === "LONG"
+      ? strongBullishRejection || weakBullishRejection
+      : strongBearishRejection || weakBearishRejection
+
+  const strongRejectionAligned =
+    bias15m === "LONG" ? strongBullishRejection : strongBearishRejection
+
+  // -------- Stochastic alignment --------
+  // Was: strict K-over-D cross in the extreme zone. That was <4% of bars.
+  // Now: either a cross OR stoch simply trending in the signal direction
+  //   from a non-exhausted zone.
   const stochPrev = stochastic(candles5m.slice(0, -1), 14, 3)
   const bullishStochCross =
-    stochPrev.k < stochPrev.d && stoch.k > stoch.d && stoch.k < 40
+    stochPrev.k < stochPrev.d && stoch.k > stoch.d && stoch.k < 50
   const bearishStochCross =
-    stochPrev.k > stochPrev.d && stoch.k < stoch.d && stoch.k > 60
-  const stochAligned = bias15m === "LONG" ? bullishStochCross : bearishStochCross
+    stochPrev.k > stochPrev.d && stoch.k < stoch.d && stoch.k > 50
+  const bullishStochTrend = stoch.k > stoch.d && stoch.k >= 30 && stoch.k <= 70
+  const bearishStochTrend = stoch.k < stoch.d && stoch.k >= 30 && stoch.k <= 70
 
-  // -------- RSI sanity --------
-  // Don't chase into exhaustion.
-  const rsiOk = rsi5m >= 40 && rsi5m <= 60
+  const stochAligned =
+    bias15m === "LONG"
+      ? bullishStochCross || bullishStochTrend
+      : bearishStochCross || bearishStochTrend
+
+  const strongStochAligned =
+    bias15m === "LONG" ? bullishStochCross : bearishStochCross
+
+  // -------- RSI (informational only, not a gate anymore) --------
+  // The old rsi_healthy gate (40-60 window) rejected 39% of setups alone.
+  // We now use RSI as a bonus factor: within 40-60 adds points, outside is
+  // penalized instead of hard-blocking.
+  const rsiInBand = rsi5m >= 40 && rsi5m <= 60
 
   // -------- BB exhaustion guard --------
   const bb15m = bollinger(closes15m, 20, 2)
@@ -195,9 +227,8 @@ function evaluateEurusd(
     gate("adx_trending", adx15m.adx >= MIN_ADX, `ADX=${adx15m.adx.toFixed(1)}`),
     gate("pullback_to_anchor", pullbackWithinTol, `Dist=${(nearestAnchor / PIP).toFixed(1)} pips`),
     gate("pullback_direction", bias15m === "LONG" ? pulledDown : pulledUp, "Price must have pulled into the anchor"),
-    gate("rejection_pattern", rejectionAligned, "Pin bar or engulfing required"),
-    gate("stoch_cross", stochAligned, "Stoch must cross in signal direction"),
-    gate("rsi_healthy", rsiOk, `RSI=${rsi5m.toFixed(1)} not in 40-60`),
+    gate("rejection_pattern", rejectionAligned, "Candle in trend direction after pullback"),
+    gate("stoch_aligned", stochAligned, "Stoch must cross or trend in signal direction"),
     gate("not_bb_exhausted", !bbExhausted, "Price too close to BB extreme on 15m")
   ]
 
@@ -206,9 +237,9 @@ function evaluateEurusd(
     factor("trend_strength", 12, `EMA9-EMA21 gap: ${(ema9 - ema21).toFixed(5)}`),
     factor("adx_value", Math.min(10, Math.max(0, (adx15m.adx - 20) / 3)), `ADX=${adx15m.adx.toFixed(1)}`),
     factor("pullback_quality", pullbackWithinTol ? 10 : 0, "Anchor retest"),
-    factor("rejection", rejectionAligned ? 10 : 0, "Price action"),
-    factor("stoch_oversold_bounce", stochAligned ? 8 : 0, `K=${stoch.k.toFixed(0)} D=${stoch.d.toFixed(0)}`),
-    factor("rsi_balance", rsiOk ? 5 : -5, `RSI=${rsi5m.toFixed(1)}`),
+    factor("rejection_strength", strongRejectionAligned ? 10 : rejectionAligned ? 4 : 0, strongRejectionAligned ? "Strong (pin/engulf)" : "Weak (directional close)"),
+    factor("stoch_quality", strongStochAligned ? 8 : stochAligned ? 4 : 0, `K=${stoch.k.toFixed(0)} D=${stoch.d.toFixed(0)}`),
+    factor("rsi_band", rsiInBand ? 5 : -3, `RSI=${rsi5m.toFixed(1)} ${rsiInBand ? "(balanced)" : "(extended)"}`),
     factor("vwap_alignment", distToVwap <= distToEma21 ? 4 : 2, "Closer to VWAP")
   ]
 
