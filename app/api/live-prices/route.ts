@@ -4,11 +4,18 @@ import {
   type Market,
   type ScanTimeframe
 } from "@/lib/markets"
-import { monitorOpenTrades, type LivePriceBook } from "@/lib/tradeMonitor"
+import {
+  monitorOpenTrades,
+  type LivePriceBook,
+  type LiveBarBook
+} from "@/lib/tradeMonitor"
 
 type Candle = {
+  open: number
+  high: number
+  low: number
   close: number
-  volume?: number
+  volume: number
 }
 
 const livePriceCache = new Map<string, { data: Candle[]; time: number }>()
@@ -120,10 +127,13 @@ async function getCandles(
 
       const candles = data
         .map((c: any) => ({
+          open: safeNumber(c[1]),
+          high: safeNumber(c[2]),
+          low: safeNumber(c[3]),
           close: safeNumber(c[4]),
           volume: safeNumber(c[5])
         }))
-        .filter((c) => c.close > 0)
+        .filter((c) => c.close > 0 && c.high > 0 && c.low > 0)
 
       livePriceCache.set(cacheKey, { data: candles, time: now })
       return candles
@@ -156,10 +166,13 @@ async function getCandles(
     const candles = [...(data as any).values]
       .reverse()
       .map((c: any) => ({
+        open: safeNumber(c.open),
+        high: safeNumber(c.high),
+        low: safeNumber(c.low),
         close: safeNumber(c.close),
-        volume: safeNumber(c.volume || 1000)
+        volume: c.volume !== undefined ? safeNumber(c.volume) : 0
       }))
-      .filter((c) => c.close > 0)
+      .filter((c) => c.close > 0 && c.high > 0 && c.low > 0)
 
     livePriceCache.set(cacheKey, { data: candles, time: now })
     return candles
@@ -186,19 +199,36 @@ export async function GET(request: Request) {
       MT5: {}
     }
 
+    const liveBars: LiveBarBook = {
+      BINANCE: {},
+      TWELVEDATA: {},
+      MT5: {}
+    }
+
     for (const market of markets) {
       const candles = await getCandles(market.symbol, market.type, timeframe)
 
       if (!candles.length) continue
 
-      const latestPrice = candles[candles.length - 1]?.close
+      const lastBar = candles[candles.length - 1]
+      const latestPrice = lastBar?.close
       if (!latestPrice || latestPrice <= 0) continue
 
       const source = getMarketPriceSource(market)
       livePrices[source][market.symbol] = latestPrice
+
+      const lastHigh = safeNumber(lastBar?.high)
+      const lastLow = safeNumber(lastBar?.low)
+
+      if (lastHigh > 0 && lastLow > 0) {
+        liveBars[source][market.symbol] = {
+          high: lastHigh,
+          low: lastLow
+        }
+      }
     }
 
-    const updatedTrades = monitorOpenTrades(livePrices)
+    const updatedTrades = monitorOpenTrades(livePrices, liveBars)
 
     return NextResponse.json({
       success: true,

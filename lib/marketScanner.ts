@@ -10,8 +10,11 @@ CANDLE TYPE
 ========================= */
 
 export type Candle = {
+  open: number
+  high: number
+  low: number
   close: number
-  volume?: number
+  volume: number
 }
 
 /* =========================
@@ -242,10 +245,13 @@ async function fetchCandlesFromProvider(
 
     return data
       .map((c: any) => ({
+        open: safeNumber(c[1]),
+        high: safeNumber(c[2]),
+        low: safeNumber(c[3]),
         close: safeNumber(c[4]),
         volume: safeNumber(c[5])
       }))
-      .filter((c) => c.close > 0)
+      .filter((c) => c.close > 0 && c.high > 0 && c.low > 0)
   }
 
   const apiSymbol = formatForexSymbol(symbol)
@@ -275,10 +281,13 @@ async function fetchCandlesFromProvider(
   return [...(data as any).values]
     .reverse()
     .map((c: any) => ({
+      open: safeNumber(c.open),
+      high: safeNumber(c.high),
+      low: safeNumber(c.low),
       close: safeNumber(c.close),
-      volume: safeNumber(c.volume || 1000)
+      volume: c.volume !== undefined ? safeNumber(c.volume) : 0
     }))
-    .filter((c) => c.close > 0)
+    .filter((c) => c.close > 0 && c.high > 0 && c.low > 0)
 }
 
 async function getCandles(
