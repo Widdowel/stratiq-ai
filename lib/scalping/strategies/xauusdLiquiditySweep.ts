@@ -50,8 +50,8 @@ import type { ScalpSignal } from "@/lib/scalping/types"
 
 const CONFIDENCE_FLOOR = 80
 const SL_BUFFER_USD = 0.8
-const RR_TARGET = 1.5
-const BE_TRIGGER_FRACTION = 0.5
+const RR_TARGET = 1.0 // lowered from 1.5 - XAU scalps: sweep reverses ~1R, rarely 1.5R
+const BE_TRIGGER_FRACTION = 0.4 // slightly earlier BE to lock in most-of-the-way wins
 const MAX_ATR_USD = 2.5
 
 function safeNumber(value: unknown): number {
@@ -207,11 +207,24 @@ function evaluateXauusd(
   if (!sweepDirection) return xauPreflightFail("NO_SWEEP_DETECTED")
 
   // -------- Rejection pattern confirms --------
-  const bullishRejection =
+  // Tier 1: strong rejection = pin bar or engulfing (classic reversal)
+  // Tier 2: weak rejection = the reclaim bar closed in the sweep direction
+  //   (e.g. for LONG sweep: current close > current open)
+  // Gate passes for either tier; factor bonus differentiates.
+  const lastBar = candles5m[candles5m.length - 1]
+  const strongBullish =
     isBullishPinBar(candles5m) || isBullishEngulfing(candles5m)
-  const bearishRejection =
+  const strongBearish =
     isBearishPinBar(candles5m) || isBearishEngulfing(candles5m)
-  const rejectionAligned = sweepDirection === "LONG" ? bullishRejection : bearishRejection
+  const weakBullish = lastBar.close > lastBar.open
+  const weakBearish = lastBar.close < lastBar.open
+
+  const rejectionAligned =
+    sweepDirection === "LONG"
+      ? strongBullish || weakBullish
+      : strongBearish || weakBearish
+  const strongRejectionAligned =
+    sweepDirection === "LONG" ? strongBullish : strongBearish
 
   // -------- ATR filter (volatility too extreme = skip) --------
   const atr5m = atr(candles5m, 14)
@@ -250,7 +263,7 @@ function evaluateXauusd(
     factor("sweep_depth", Math.min(15, Math.max(0, sweepDepth / 0.3 * 5)), `Depth=$${sweepDepth.toFixed(2)} (${sweepSource} ${sweepLevel.toFixed(2)})`),
     factor("sweep_fresh", sweepFreshness === 0 ? 5 : sweepFreshness <= 2 ? 3 : 1, `Bar ${sweepFreshness} ago`),
     factor("reclaim_strength", sweepDirection === "LONG" ? Math.min(10, (lastClose - asianLow) / 0.5 * 3) : Math.min(10, (asianHigh - lastClose) / 0.5 * 3), "How deeply price closed back in range"),
-    factor("rejection_pattern", rejectionAligned ? 12 : 0, "PA confirmation"),
+    factor("rejection_strength", strongRejectionAligned ? 12 : rejectionAligned ? 5 : 0, strongRejectionAligned ? "Strong (pin/engulf)" : rejectionAligned ? "Weak (directional close)" : "None"),
     factor("vp_poc_nearby", nearPOC ? 6 : 0, `POC=${vp.poc.toFixed(2)}`),
     factor("pdr_confluence", pdrConfluence ? 5 : 0, pdr ? `PDH=${pdr.high.toFixed(2)} PDL=${pdr.low.toFixed(2)}` : "No PDR"),
     factor("atr_healthy", atrOk ? 5 : -5, `ATR=${atr5m.toFixed(2)}`),

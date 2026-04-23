@@ -50,8 +50,8 @@ import type { ScalpSignal } from "@/lib/scalping/types"
 
 const CONFIDENCE_FLOOR = 80
 const PIP = 0.0001 // EURUSD pip
-const SL_BUFFER_PIPS = 2
-const RR_TARGET = 1.5
+const SL_BUFFER_PIPS = 4 // widened from 2 - EUR 5m ATR ~3-4 pips, 2 was wick-vulnerable
+const RR_TARGET = 1.0 // lowered from 1.5 - 5m EUR scalp: TP 1R hits, 1.5R rarely
 const BE_TRIGGER_FRACTION = 0.5
 const PULLBACK_TOLERANCE_PIPS = 5
 const MIN_ADX = 18
@@ -185,21 +185,18 @@ function evaluateEurusd(
     bias15m === "LONG" ? strongBullishRejection : strongBearishRejection
 
   // -------- Stochastic alignment --------
-  // Was: strict K-over-D cross in the extreme zone. That was <4% of bars.
-  // Now: either a cross OR stoch simply trending in the signal direction
-  //   from a non-exhausted zone.
+  // Simplified: gate passes if K is trending in the signal direction.
+  // Strong alignment = extreme-zone cross (richer factor bonus, but same
+  // gate threshold). Previously the 30-70 band requirement was rejecting
+  // 79% of bars - now stoch only needs to be turning in direction.
   const stochPrev = stochastic(candles5m.slice(0, -1), 14, 3)
   const bullishStochCross =
     stochPrev.k < stochPrev.d && stoch.k > stoch.d && stoch.k < 50
   const bearishStochCross =
     stochPrev.k > stochPrev.d && stoch.k < stoch.d && stoch.k > 50
-  const bullishStochTrend = stoch.k > stoch.d && stoch.k >= 30 && stoch.k <= 70
-  const bearishStochTrend = stoch.k < stoch.d && stoch.k >= 30 && stoch.k <= 70
 
   const stochAligned =
-    bias15m === "LONG"
-      ? bullishStochCross || bullishStochTrend
-      : bearishStochCross || bearishStochTrend
+    bias15m === "LONG" ? stoch.k > stoch.d : stoch.k < stoch.d
 
   const strongStochAligned =
     bias15m === "LONG" ? bullishStochCross : bearishStochCross
