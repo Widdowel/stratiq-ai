@@ -17,9 +17,9 @@ upgrades the TP when the confidence clears the higher tiers.
 import type { ScalpSignal } from "@/lib/scalping/types"
 
 export const RR_TIERS: { min: number; rr: number }[] = [
-  { min: 92, rr: 1.6 },
-  { min: 87, rr: 1.2 },
-  { min: 80, rr: 0.8 }
+  { min: 92, rr: 1.2 },
+  { min: 87, rr: 0.8 },
+  { min: 80, rr: 0.5 }
 ]
 
 export function getAdaptiveRR(confidence: number): number {

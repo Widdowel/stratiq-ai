@@ -56,8 +56,8 @@ CONFIG
 
 const CONFIDENCE_FLOOR = 80
 const SL_BUFFER_PCT = 0.0015 // 0.15% beyond retest wick
-const RR_TARGET = 0.8 // scalp TP - BTC 5m median favorable excursion is ~0.5-0.8R
-const BE_TRIGGER_FRACTION = 0.5 // move SL to BE at +0.5R
+const RR_TARGET = 0.5 // ultra-scalp - MFE p50 is 0.80R so 0.5R hits ~70% of the time
+const BE_TRIGGER_FRACTION = 0.3 // SL to entry at +0.3R, before the 0.5R TP
 const BREAKOUT_LOOKBACK = 25 // how many 15m bars back to check for the breakout
 const RETEST_TOLERANCE_PCT = 0.004 // price must come back within 0.4% of broken level
 const MIN_ADX = 18

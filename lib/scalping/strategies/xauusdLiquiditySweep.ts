@@ -50,8 +50,8 @@ import type { ScalpSignal } from "@/lib/scalping/types"
 
 const CONFIDENCE_FLOOR = 80
 const SL_BUFFER_USD = 0.8
-const RR_TARGET = 0.8 // scalp TP - XAU sweep reverses ~0.8R typically
-const BE_TRIGGER_FRACTION = 0.4 // slightly earlier BE to lock in most-of-the-way wins
+const RR_TARGET = 0.6 // scalp - XAU MFE p50 = 0.98R so 0.6R captures reliably
+const BE_TRIGGER_FRACTION = 0.3
 const MAX_ATR_USD = 2.5
 
 function safeNumber(value: unknown): number {
@@ -153,7 +153,7 @@ function evaluateXauusd(
   // either the Asian range OR yesterday's high/low, and require the
   // current close to be back inside. This captures "sweep then reverse"
   // patterns that complete over 2-6 bars (10-30 min on 5m).
-  const SWEEP_LOOKBACK = 6
+  const SWEEP_LOOKBACK = 10 // bumped from 6 - still only 7 signals over 920 bars at 6
 
   let sweepDirection: "LONG" | "SHORT" | null = null
   let sweepWickLow = lastLow
