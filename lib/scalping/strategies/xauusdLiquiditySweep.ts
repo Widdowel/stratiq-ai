@@ -139,20 +139,37 @@ function evaluateXauusd(
     }
   }
 
+  // Prior day H/L is a second liquidity pool. Many XAU sweeps target PDH/PDL
+  // rather than the Asian range, especially on days without a clean Asian
+  // consolidation.
+  const pdrEarly = getPriorDayRange(candles5m)
+  const pdh = pdrEarly?.high ?? 0
+  const pdl = pdrEarly?.low ?? 0
+
   if (!asianHigh || !asianLow) return xauPreflightFail("NO_ASIAN_RANGE")
 
   // -------- Sweep + reclaim detection --------
-  // Previously only the CURRENT bar was checked for sweep+reclaim, which
-  // rejected 97% of bars. Now we scan the last SWEEP_LOOKBACK bars for a
-  // wick that pierced the Asian range, and confirm reclaim on the current
-  // close. This captures the typical "sweep then reverse" pattern that
-  // often completes over 2-3 bars on XAU.
-  const SWEEP_LOOKBACK = 3
+  // We look at the last SWEEP_LOOKBACK bars for any wick that pierced
+  // either the Asian range OR yesterday's high/low, and require the
+  // current close to be back inside. This captures "sweep then reverse"
+  // patterns that complete over 2-6 bars (10-30 min on 5m).
+  const SWEEP_LOOKBACK = 6
 
   let sweepDirection: "LONG" | "SHORT" | null = null
   let sweepWickLow = lastLow
   let sweepWickHigh = lastHigh
+  let sweepLevel = 0
+  let sweepSource: "ASIAN" | "PDH_PDL" = "ASIAN"
   let sweepBarIdx = candles5m.length - 1
+
+  const lowLevels = [
+    { level: asianLow, source: "ASIAN" as const },
+    ...(pdl > 0 ? [{ level: pdl, source: "PDH_PDL" as const }] : [])
+  ]
+  const highLevels = [
+    { level: asianHigh, source: "ASIAN" as const },
+    ...(pdh > 0 ? [{ level: pdh, source: "PDH_PDL" as const }] : [])
+  ]
 
   for (let i = candles5m.length - SWEEP_LOOKBACK; i < candles5m.length; i++) {
     if (i < 0) continue
@@ -160,22 +177,29 @@ function evaluateXauusd(
     const h = safeNumber(bar.high)
     const l = safeNumber(bar.low)
 
-    // Did this bar's LOW pierce below asianLow?
-    if (l < asianLow && lastClose >= asianLow) {
-      if (!sweepDirection || l < sweepWickLow) {
-        sweepDirection = "LONG"
-        sweepWickLow = l
-        sweepBarIdx = i
+    for (const { level, source } of lowLevels) {
+      if (!level) continue
+      if (l < level && lastClose >= level) {
+        if (!sweepDirection || l < sweepWickLow) {
+          sweepDirection = "LONG"
+          sweepWickLow = l
+          sweepLevel = level
+          sweepSource = source
+          sweepBarIdx = i
+        }
       }
     }
 
-    // Did this bar's HIGH pierce above asianHigh?
-    if (h > asianHigh && lastClose <= asianHigh) {
-      // Prefer the deepest sweep if multiple bars qualify.
-      if (!sweepDirection || h > sweepWickHigh) {
-        sweepDirection = "SHORT"
-        sweepWickHigh = h
-        sweepBarIdx = i
+    for (const { level, source } of highLevels) {
+      if (!level) continue
+      if (h > level && lastClose <= level) {
+        if (!sweepDirection || h > sweepWickHigh) {
+          sweepDirection = "SHORT"
+          sweepWickHigh = h
+          sweepLevel = level
+          sweepSource = source
+          sweepBarIdx = i
+        }
       }
     }
   }
@@ -221,10 +245,10 @@ function evaluateXauusd(
       ? asianLow - sweepWickLow
       : sweepWickHigh - asianHigh
 
-  const sweepFreshness = candles5m.length - 1 - sweepBarIdx // 0 = current bar, 2 = 3 bars ago
+  const sweepFreshness = candles5m.length - 1 - sweepBarIdx // 0 = current bar, 5 = 6 bars ago
   const factors = [
-    factor("sweep_depth", Math.min(15, Math.max(0, sweepDepth / 0.3 * 5)), `Depth=$${sweepDepth.toFixed(2)}`),
-    factor("sweep_fresh", sweepFreshness === 0 ? 5 : sweepFreshness === 1 ? 3 : 1, `Bar ${sweepFreshness} ago`),
+    factor("sweep_depth", Math.min(15, Math.max(0, sweepDepth / 0.3 * 5)), `Depth=$${sweepDepth.toFixed(2)} (${sweepSource} ${sweepLevel.toFixed(2)})`),
+    factor("sweep_fresh", sweepFreshness === 0 ? 5 : sweepFreshness <= 2 ? 3 : 1, `Bar ${sweepFreshness} ago`),
     factor("reclaim_strength", sweepDirection === "LONG" ? Math.min(10, (lastClose - asianLow) / 0.5 * 3) : Math.min(10, (asianHigh - lastClose) / 0.5 * 3), "How deeply price closed back in range"),
     factor("rejection_pattern", rejectionAligned ? 12 : 0, "PA confirmation"),
     factor("vp_poc_nearby", nearPOC ? 6 : 0, `POC=${vp.poc.toFixed(2)}`),

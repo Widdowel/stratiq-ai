@@ -108,22 +108,31 @@ export type BacktestTimeframes = {
   candles5m: CandleWithTime[]
 }
 
+/**
+ * Fetches enough HTF candles to provide warmup buffer PLUS the scan window.
+ * Each scan bar needs 60 1h candles of history for EMA50 + ADX computation,
+ * so we fetch `bars/12 + 80` 1h candles (80 extra = 80h = ~3.3 days of
+ * warmup, enough for EMA50 + ADX14 to stabilize).
+ */
 export async function loadBacktestData(
   symbol: string,
   bars = 1000
 ): Promise<BacktestTimeframes> {
+  const hourCount = Math.ceil(bars / 12) + 80 // warmup buffer
+  const q15Count = Math.ceil(bars / 3) + 200 // also extra for 15m warmup
+
   if (symbol === "BTCUSDT" || symbol === "ETHUSDT") {
     const [c1h, c15m, c5m] = await Promise.all([
-      fetchBinanceHistory(symbol, "1h", Math.ceil(bars / 12)),
-      fetchBinanceHistory(symbol, "15m", Math.ceil(bars / 3)),
+      fetchBinanceHistory(symbol, "1h", hourCount),
+      fetchBinanceHistory(symbol, "15m", q15Count),
       fetchBinanceHistory(symbol, "5m", bars)
     ])
     return { candles1h: c1h, candles15m: c15m, candles5m: c5m }
   }
 
   const [c1h, c15m, c5m] = await Promise.all([
-    fetchTwelveDataHistory(symbol, "1h", Math.ceil(bars / 12)),
-    fetchTwelveDataHistory(symbol, "15min", Math.ceil(bars / 3)),
+    fetchTwelveDataHistory(symbol, "1h", hourCount),
+    fetchTwelveDataHistory(symbol, "15min", q15Count),
     fetchTwelveDataHistory(symbol, "5min", bars)
   ])
   return { candles1h: c1h, candles15m: c15m, candles5m: c5m }

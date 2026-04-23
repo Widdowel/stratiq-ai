@@ -53,9 +53,9 @@ const PIP = 0.0001 // EURUSD pip
 const SL_BUFFER_PIPS = 2
 const RR_TARGET = 1.5
 const BE_TRIGGER_FRACTION = 0.5
-const PULLBACK_TOLERANCE_PIPS = 3
-const MIN_ADX = 20
-const BB_EXHAUST_BUFFER_PIPS = 5
+const PULLBACK_TOLERANCE_PIPS = 5
+const MIN_ADX = 18
+const BB_EXHAUST_BUFFER_PIPS = 3
 
 function safeNumber(value: unknown): number {
   const n = Number(value)
@@ -226,7 +226,6 @@ function evaluateEurusd(
     gate("trend_clear", true, `EMA9=${ema9.toFixed(5)} EMA21=${ema21.toFixed(5)}`),
     gate("adx_trending", adx15m.adx >= MIN_ADX, `ADX=${adx15m.adx.toFixed(1)}`),
     gate("pullback_to_anchor", pullbackWithinTol, `Dist=${(nearestAnchor / PIP).toFixed(1)} pips`),
-    gate("pullback_direction", bias15m === "LONG" ? pulledDown : pulledUp, "Price must have pulled into the anchor"),
     gate("rejection_pattern", rejectionAligned, "Candle in trend direction after pullback"),
     gate("stoch_aligned", stochAligned, "Stoch must cross or trend in signal direction"),
     gate("not_bb_exhausted", !bbExhausted, "Price too close to BB extreme on 15m")
@@ -237,6 +236,7 @@ function evaluateEurusd(
     factor("trend_strength", 12, `EMA9-EMA21 gap: ${(ema9 - ema21).toFixed(5)}`),
     factor("adx_value", Math.min(10, Math.max(0, (adx15m.adx - 20) / 3)), `ADX=${adx15m.adx.toFixed(1)}`),
     factor("pullback_quality", pullbackWithinTol ? 10 : 0, "Anchor retest"),
+    factor("pullback_direction", (bias15m === "LONG" ? pulledDown : pulledUp) ? 5 : 0, "Price pulled into anchor"),
     factor("rejection_strength", strongRejectionAligned ? 10 : rejectionAligned ? 4 : 0, strongRejectionAligned ? "Strong (pin/engulf)" : "Weak (directional close)"),
     factor("stoch_quality", strongStochAligned ? 8 : stochAligned ? 4 : 0, `K=${stoch.k.toFixed(0)} D=${stoch.d.toFixed(0)}`),
     factor("rsi_band", rsiInBand ? 5 : -3, `RSI=${rsi5m.toFixed(1)} ${rsiInBand ? "(balanced)" : "(extended)"}`),

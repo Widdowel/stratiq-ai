@@ -58,8 +58,8 @@ const CONFIDENCE_FLOOR = 80
 const SL_BUFFER_PCT = 0.0015 // 0.15% beyond retest wick
 const RR_TARGET = 1.8
 const BE_TRIGGER_FRACTION = 0.5 // move SL to BE at +0.5R
-const BREAKOUT_LOOKBACK = 15 // how many 15m bars back to check for the breakout
-const RETEST_TOLERANCE_PCT = 0.003 // price must come back within 0.3% of broken level
+const BREAKOUT_LOOKBACK = 25 // how many 15m bars back to check for the breakout
+const RETEST_TOLERANCE_PCT = 0.004 // price must come back within 0.4% of broken level
 const MIN_ADX = 20
 const MIN_RVOL = 1.4 // volume >= 1.4x avg(20) on breakout bar
 
