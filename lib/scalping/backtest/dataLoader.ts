@@ -38,15 +38,72 @@ const BINANCE_INTERVALS = {
 
 export type BinanceInterval = keyof typeof BINANCE_INTERVALS
 
+const BINANCE_MAX_PER_REQUEST = 1500
+
+/**
+ * Fetches up to `bars` candles from Binance, paginating backwards via
+ * the `endTime` parameter when `bars > 1500`. Returns in chronological
+ * order (oldest first), like the single-request version.
+ */
 export async function fetchBinanceHistory(
   symbol: string,
   interval: BinanceInterval,
   bars = 1000
 ): Promise<CandleWithTime[]> {
-  const limit = Math.min(bars, 1500)
-  const url = `https://fapi.binance.com/fapi/v1/klines?symbol=${symbol}&interval=${BINANCE_INTERVALS[interval]}&limit=${limit}`
-  const data = await fetchJson(url)
+  const intervalStr = BINANCE_INTERVALS[interval]
+  const collected: CandleWithTime[] = []
 
+  // First request: latest bars.
+  const first = await fetchBinancePage(symbol, intervalStr, BINANCE_MAX_PER_REQUEST)
+  collected.push(...first)
+
+  if (first.length === 0) return []
+
+  // Paginate back until we have enough, capped to avoid runaway loops.
+  // Each further request fetches older bars via endTime = oldest openTime - 1.
+  let safety = 0
+  while (collected.length < bars && safety < 20) {
+    const oldest = collected[0]?.openTime
+    if (!oldest) break
+
+    const page = await fetchBinancePage(
+      symbol,
+      intervalStr,
+      BINANCE_MAX_PER_REQUEST,
+      oldest - 1
+    )
+
+    if (page.length === 0) break
+
+    // Page is chronological; prepend before existing.
+    collected.unshift(...page)
+    safety += 1
+
+    // If the page was smaller than the requested limit, there's nothing older.
+    if (page.length < BINANCE_MAX_PER_REQUEST) break
+  }
+
+  // Truncate to exactly `bars` keeping the latest.
+  return collected.slice(-bars)
+}
+
+async function fetchBinancePage(
+  symbol: string,
+  intervalStr: string,
+  limit: number,
+  endTime?: number
+): Promise<CandleWithTime[]> {
+  const params = new URLSearchParams({
+    symbol,
+    interval: intervalStr,
+    limit: String(limit)
+  })
+  if (endTime !== undefined) {
+    params.set("endTime", String(endTime))
+  }
+  const url = `https://fapi.binance.com/fapi/v1/klines?${params.toString()}`
+
+  const data = await fetchJson(url)
   if (!Array.isArray(data)) return []
 
   return data.map((row: any[]): CandleWithTime => ({

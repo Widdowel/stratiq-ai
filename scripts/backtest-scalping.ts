@@ -44,7 +44,7 @@ function loadDotEnv(path = ".env.local"): void {
 
 loadDotEnv(".env.local")
 
-const DEFAULT_BARS = 500
+const DEFAULT_BARS = 5000 // ~17 days of 5m candles - large enough for stats
 
 async function backtestOne(
   symbol: string,
