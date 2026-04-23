@@ -24,8 +24,11 @@ export type Signal = {
 }
 
 export type Candle = {
+  open: number
+  high: number
+  low: number
   close: number
-  volume?: number
+  volume: number
 }
 
 export type MarketContext = {
@@ -85,9 +88,9 @@ function getTrendThreshold(symbol: string, timeframe: SignalTimeframe) {
 }
 
 function getConfidenceFloor(timeframe: SignalTimeframe) {
-  if (timeframe === "SHORT") return 58
-  if (timeframe === "MEDIUM") return 62
-  return 66
+  if (timeframe === "SHORT") return 70
+  if (timeframe === "MEDIUM") return 72
+  return 75
 }
 
 /* =========================
@@ -127,19 +130,95 @@ function getVolumeBias(candles: Candle[]) {
   return (recentAvg - oldAvg) / oldAvg
 }
 
+/* =========================
+EMA + ADX TREND HELPERS
+========================= */
+
+function calculateEMA(values: number[], period: number): number {
+  if (values.length < period) return 0
+
+  const k = 2 / (period + 1)
+  // Seed with simple average of first `period` values, then walk forward.
+  let ema = avg(values.slice(0, period))
+
+  for (let i = period; i < values.length; i++) {
+    ema = values[i] * k + ema * (1 - k)
+  }
+
+  return ema
+}
+
+function calculateADX(candles: Candle[], period = 14): number {
+  if (candles.length < period * 2 + 1) return 0
+
+  const plusDM: number[] = []
+  const minusDM: number[] = []
+  const tr: number[] = []
+
+  for (let i = 1; i < candles.length; i++) {
+    const c = candles[i]
+    const p = candles[i - 1]
+
+    const upMove = safeNumber(c.high) - safeNumber(p.high)
+    const downMove = safeNumber(p.low) - safeNumber(c.low)
+
+    plusDM.push(upMove > downMove && upMove > 0 ? upMove : 0)
+    minusDM.push(downMove > upMove && downMove > 0 ? downMove : 0)
+
+    const highLow = safeNumber(c.high) - safeNumber(c.low)
+    const highPrevClose = Math.abs(safeNumber(c.high) - safeNumber(p.close))
+    const lowPrevClose = Math.abs(safeNumber(c.low) - safeNumber(p.close))
+    tr.push(Math.max(highLow, highPrevClose, lowPrevClose))
+  }
+
+  if (tr.length < period) return 0
+
+  const smooth = (arr: number[]) => {
+    const slice = arr.slice(-period)
+    return slice.reduce((s, v) => s + v, 0)
+  }
+
+  const atr = smooth(tr)
+  if (atr <= 0) return 0
+
+  const plusDI = 100 * (smooth(plusDM) / atr)
+  const minusDI = 100 * (smooth(minusDM) / atr)
+
+  const di = plusDI + minusDI
+  if (di <= 0) return 0
+
+  return (Math.abs(plusDI - minusDI) / di) * 100
+}
+
 function detectTrend(
   symbol: string,
   candles: Candle[],
   timeframe: SignalTimeframe
 ): SignalDirection | "NEUTRAL" {
-  if (candles.length < 20) return "NEUTRAL"
+  // Needs enough data for EMA50 and ADX14 warmup.
+  if (candles.length < 60) return "NEUTRAL"
+
+  const closes = candles.map((c) => safeNumber(c.close)).filter((v) => v > 0)
+  if (closes.length < 60) return "NEUTRAL"
+
+  const ema20 = calculateEMA(closes, 20)
+  const ema50 = calculateEMA(closes, 50)
+  const adx = calculateADX(candles, 14)
 
   const move = getMove(candles, 12)
   const momentum = getRecentMomentum(candles)
   const threshold = getTrendThreshold(symbol, timeframe)
 
-  if (move > threshold && momentum > 0) return "BUY"
-  if (move < -threshold && momentum < 0) return "SELL"
+  // ADX < 20 = no clear trend, reject (classic threshold).
+  if (adx < 20) return "NEUTRAL"
+
+  const bullishStructure =
+    ema20 > ema50 && move > threshold && momentum > 0
+  const bearishStructure =
+    ema20 < ema50 && move < -threshold && momentum < 0
+
+  if (bullishStructure) return "BUY"
+  if (bearishStructure) return "SELL"
 
   return "NEUTRAL"
 }

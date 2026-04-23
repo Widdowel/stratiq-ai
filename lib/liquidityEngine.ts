@@ -6,8 +6,11 @@ export type SignalDirection = "BUY" | "SELL"
 export type SignalTimeframe = "SHORT" | "MEDIUM" | "LONG"
 
 export type Candle = {
+  open: number
+  high: number
+  low: number
   close: number
-  volume?: number
+  volume: number
 }
 
 export type LiquiditySide = "BUY_SIDE" | "SELL_SIDE"
@@ -104,17 +107,17 @@ function getNearLiquidityThreshold(symbol: string, timeframe: SignalTimeframe) {
 SWING HELPERS
 ========================= */
 
-function getSwingHighs(candles: Candle[], leftBars = 2, rightBars = 2) {
+function getSwingHighs(candles: Candle[], leftBars = 3, rightBars = 3) {
   const levels: { price: number; index: number }[] = []
 
   for (let i = leftBars; i < candles.length - rightBars; i++) {
-    const current = safeNumber(candles[i]?.close)
+    const current = safeNumber(candles[i]?.high)
     if (!current) continue
 
     let isHigh = true
 
     for (let l = 1; l <= leftBars; l++) {
-      if (safeNumber(candles[i - l]?.close) >= current) {
+      if (safeNumber(candles[i - l]?.high) >= current) {
         isHigh = false
         break
       }
@@ -123,7 +126,7 @@ function getSwingHighs(candles: Candle[], leftBars = 2, rightBars = 2) {
     if (!isHigh) continue
 
     for (let r = 1; r <= rightBars; r++) {
-      if (safeNumber(candles[i + r]?.close) > current) {
+      if (safeNumber(candles[i + r]?.high) > current) {
         isHigh = false
         break
       }
@@ -140,17 +143,18 @@ function getSwingHighs(candles: Candle[], leftBars = 2, rightBars = 2) {
   return levels
 }
 
-function getSwingLows(candles: Candle[], leftBars = 2, rightBars = 2) {
+function getSwingLows(candles: Candle[], leftBars = 3, rightBars = 3) {
   const levels: { price: number; index: number }[] = []
 
   for (let i = leftBars; i < candles.length - rightBars; i++) {
-    const current = safeNumber(candles[i]?.close)
+    const current = safeNumber(candles[i]?.low)
     if (!current) continue
 
     let isLow = true
 
     for (let l = 1; l <= leftBars; l++) {
-      if (safeNumber(candles[i - l]?.close) <= current) {
+      const prev = safeNumber(candles[i - l]?.low)
+      if (prev !== 0 && prev <= current) {
         isLow = false
         break
       }
@@ -159,7 +163,8 @@ function getSwingLows(candles: Candle[], leftBars = 2, rightBars = 2) {
     if (!isLow) continue
 
     for (let r = 1; r <= rightBars; r++) {
-      if (safeNumber(candles[i + r]?.close) < current) {
+      const next = safeNumber(candles[i + r]?.low)
+      if (next !== 0 && next < current) {
         isLow = false
         break
       }
@@ -304,19 +309,25 @@ export function detectLiquiditySweep(
 ): LiquiditySweep {
   if (candles.length < 3) return "NONE"
 
-  const last = safeNumber(candles[candles.length - 1]?.close)
-  const prev = safeNumber(candles[candles.length - 2]?.close)
+  const last = candles[candles.length - 1]
+  const lastHigh = safeNumber(last?.high)
+  const lastLow = safeNumber(last?.low)
+  const lastClose = safeNumber(last?.close)
 
-  if (!last || !prev) return "NONE"
+  if (!lastHigh || !lastLow || !lastClose) return "NONE"
 
   if (nearestBuySide) {
-    if (prev <= nearestBuySide.high && last > nearestBuySide.high) {
+    const wickedThrough = lastHigh > nearestBuySide.high
+    const closedBackBelow = lastClose <= nearestBuySide.high
+    if (wickedThrough && closedBackBelow) {
       return "BUY_SIDE_SWEEP"
     }
   }
 
   if (nearestSellSide) {
-    if (prev >= nearestSellSide.low && last < nearestSellSide.low) {
+    const wickedThrough = lastLow < nearestSellSide.low
+    const closedBackAbove = lastClose >= nearestSellSide.low
+    if (wickedThrough && closedBackAbove) {
       return "SELL_SIDE_SWEEP"
     }
   }
@@ -331,17 +342,17 @@ export function hasLiquidityReclaim(
 ) {
   if (candles.length < 4 || sweep === "NONE" || !zone) return false
 
-  const closes = candles.slice(-4).map((c) => safeNumber(c.close))
-  if (closes.some((value) => !value)) return false
+  const last = candles[candles.length - 1]
+  const lastClose = safeNumber(last?.close)
 
-  const last = closes[closes.length - 1]
+  if (!lastClose) return false
 
   if (sweep === "SELL_SIDE_SWEEP") {
-    return last >= zone.low
+    return lastClose >= zone.low
   }
 
   if (sweep === "BUY_SIDE_SWEEP") {
-    return last <= zone.high
+    return lastClose <= zone.high
   }
 
   return false

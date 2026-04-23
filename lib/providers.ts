@@ -6,8 +6,11 @@ import {
 } from "@/lib/markets"
 
 export type Candle = {
+  open: number
+  high: number
+  low: number
   close: number
-  volume?: number
+  volume: number
 }
 
 export type PriceSource = "BINANCE" | "TWELVEDATA" | "MT5"
@@ -290,10 +293,13 @@ async function fetchBinanceCandles(
 
   return data
     .map((row: any) => ({
+      open: safeNumber(row?.[1]),
+      high: safeNumber(row?.[2]),
+      low: safeNumber(row?.[3]),
       close: safeNumber(row?.[4]),
       volume: safeNumber(row?.[5])
     }))
-    .filter((candle) => candle.close > 0)
+    .filter((candle) => candle.close > 0 && candle.high > 0 && candle.low > 0)
 }
 
 async function fetchTwelveDataCandles(
@@ -347,10 +353,13 @@ async function fetchTwelveDataCandles(
   return [...(data as any).values]
     .reverse()
     .map((row: any) => ({
+      open: safeNumber(row?.open),
+      high: safeNumber(row?.high),
+      low: safeNumber(row?.low),
       close: safeNumber(row?.close),
-      volume: safeNumber(row?.volume || 1000)
+      volume: row?.volume !== undefined ? safeNumber(row.volume) : 0
     }))
-    .filter((candle) => candle.close > 0)
+    .filter((candle) => candle.close > 0 && candle.high > 0 && candle.low > 0)
 }
 
 export async function fetchCandlesFromProvider(

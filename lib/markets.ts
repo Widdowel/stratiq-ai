@@ -61,10 +61,7 @@ TRADED MARKETS
 
 export const markets: Market[] = [
   /* CRYPTO */
-  // { symbol: "BTCUSDT", type: "crypto" },
-  // { symbol: "ETHUSDT", type: "crypto" },
-  // { symbol: "BNBUSDT", type: "crypto" },
-  // { symbol: "SOLUSDT", type: "crypto" },
+  { symbol: "BTCUSDT", type: "crypto" },
 
   /* FOREX */
   { symbol: "EURUSD", type: "forex" },

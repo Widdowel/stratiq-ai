@@ -8,7 +8,7 @@ const MAX_CRYPTO_TRADES = 2
 const MAX_FOREX_TRADES = 1
 const MAX_GOLD_TRADES = 1
 
-const MIN_CONFIDENCE_REQUIRED = 60
+const MIN_CONFIDENCE_REQUIRED = 70
 
 /* =========================
 TRADE TYPE
@@ -57,8 +57,6 @@ function getBasePositionSize(confidence: number) {
   if (confidence >= 80) return 1
   if (confidence >= 75) return 0.9
   if (confidence >= 70) return 0.8
-  if (confidence >= 65) return 0.7
-  if (confidence >= 60) return 0.6
   return 0
 }
 

@@ -5,7 +5,11 @@ import { generateSignals } from "@/lib/signalEngine"
 import { evaluateRisk } from "@/lib/riskEngine"
 import { getMacroNews } from "@/lib/macroNews"
 import { evaluateMacroRisk } from "@/lib/macroFilter"
-import { monitorOpenTrades, type LivePriceBook } from "@/lib/tradeMonitor"
+import {
+  monitorOpenTrades,
+  type LivePriceBook,
+  type LiveBarBook
+} from "@/lib/tradeMonitor"
 import {
   buildMarketContext,
   buildLivePriceBook,
@@ -13,6 +17,8 @@ import {
   pruneProviderCaches,
   type ProviderIssue
 } from "@/lib/providers"
+import { isSymbolInActiveSession } from "@/lib/sessionFilter"
+import { isSymbolInCooldown } from "@/lib/cooldown"
 
 type ScannedSignal = {
   id: string
@@ -65,6 +71,8 @@ type CachedScanResult = {
 type ScanMarketResult = {
   signals: ReturnType<typeof generateSignals>
   latestPrice?: number
+  lastHigh?: number
+  lastLow?: number
   hasContext: boolean
 }
 
@@ -72,15 +80,15 @@ const scanResponseCache = new Map<string, CachedScanResult>()
 const pendingScans = new Map<ScanTimeframe, Promise<ScanResponse>>()
 
 const SCAN_TTL: Record<ScanTimeframe, number> = {
-  SHORT: 60 * 60_000,
-  MEDIUM: 4 * 60 * 60_000,
-  LONG: 12 * 60 * 60_000
+  SHORT: 5 * 60_000,
+  MEDIUM: 30 * 60_000,
+  LONG: 2 * 60 * 60_000
 }
 
 const MIN_RR: Record<ScanTimeframe, number> = {
-  SHORT: 1.35,
-  MEDIUM: 1.5,
-  LONG: 1.7
+  SHORT: 1.8,
+  MEDIUM: 2.0,
+  LONG: 2.5
 }
 
 function safeNumber(value: unknown): number {
@@ -216,6 +224,14 @@ function createEmptyLivePriceBook(): LivePriceBook {
   }
 }
 
+function createEmptyLiveBarBook(): LiveBarBook {
+  return {
+    BINANCE: {},
+    TWELVEDATA: {},
+    MT5: {}
+  }
+}
+
 function mergeLivePriceBooks(
   base: LivePriceBook,
   extra: LivePriceBook
@@ -255,6 +271,10 @@ async function scanMarket(
     }
   }
 
+  const lastBar = context.entryCandles[context.entryCandles.length - 1]
+  const lastHigh = safeNumber(lastBar?.high)
+  const lastLow = safeNumber(lastBar?.low)
+
   const rawSignals = generateSignals(market.symbol, context, timeframe)
 
   console.log("SIGNAL DEBUG:", market.symbol, timeframe, {
@@ -273,6 +293,8 @@ async function scanMarket(
   return {
     signals,
     latestPrice,
+    lastHigh: lastHigh > 0 ? lastHigh : undefined,
+    lastLow: lastLow > 0 ? lastLow : undefined,
     hasContext: true
   }
 }
@@ -369,6 +391,7 @@ export async function POST(request: Request) {
       let scannedContexts = 0
 
       const scanLivePrices = createEmptyLivePriceBook()
+      const scanLiveBars = createEmptyLiveBarBook()
 
       for (let i = 0; i < scanResults.length; i++) {
         const result = scanResults[i]
@@ -381,6 +404,18 @@ export async function POST(request: Request) {
         if (result.latestPrice !== undefined && result.latestPrice > 0) {
           const source = getMarketPriceSource(market)
           scanLivePrices[source][market.symbol] = result.latestPrice
+
+          if (
+            result.lastHigh !== undefined &&
+            result.lastLow !== undefined &&
+            result.lastHigh > 0 &&
+            result.lastLow > 0
+          ) {
+            scanLiveBars[source][market.symbol] = {
+              high: result.lastHigh,
+              low: result.lastLow
+            }
+          }
         }
 
         if (result.signals.length > 0) {
@@ -389,8 +424,19 @@ export async function POST(request: Request) {
       }
 
       const acceptedSignals: ScannedSignal[] = []
+      const now = new Date()
 
       for (const signal of allSignals) {
+        if (!isSymbolInActiveSession(signal.symbol, now)) {
+          console.log("SESSION BLOCK:", signal.symbol, timeframe, "outside London/NY")
+          continue
+        }
+
+        if (isSymbolInCooldown(signal.symbol, now.getTime())) {
+          console.log("COOLDOWN BLOCK:", signal.symbol, timeframe, "post-SL cooldown active")
+          continue
+        }
+
         const marketBucketBlock = shouldBlockByMarketBucket(
           acceptedSignals,
           signal
@@ -449,7 +495,7 @@ export async function POST(request: Request) {
       )
 
       const livePrices = mergeLivePriceBooks(scanLivePrices, fallbackLivePrices)
-      const updatedTrades = monitorOpenTrades(livePrices)
+      const updatedTrades = monitorOpenTrades(livePrices, scanLiveBars)
       const providers = buildProviderSummary(providerIssues)
 
       const response: ScanResponse = {

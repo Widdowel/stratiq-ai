@@ -5,8 +5,11 @@ REGIME TYPES
 export type SignalTimeframe = "SHORT" | "MEDIUM" | "LONG"
 
 export type Candle = {
+  open: number
+  high: number
+  low: number
   close: number
-  volume?: number
+  volume: number
 }
 
 export type MarketRegime =
@@ -132,31 +135,41 @@ export function getRecentMomentum(candles: Candle[]) {
 export function calculateATRPercent(candles: Candle[], period = 14) {
   if (candles.length < period + 1) return 0
 
-  const ranges: number[] = []
+  const trueRanges: number[] = []
 
   for (let i = candles.length - period; i < candles.length; i++) {
-    const current = safeNumber(candles[i]?.close)
-    const previous = safeNumber(candles[i - 1]?.close)
+    const c = candles[i]
+    const p = candles[i - 1]
 
-    if (!current || !previous) continue
-    ranges.push(Math.abs(current - previous) / previous)
+    const high = safeNumber(c?.high)
+    const low = safeNumber(c?.low)
+    const prevClose = safeNumber(p?.close)
+
+    if (!high || !low || !prevClose) continue
+
+    const tr = Math.max(
+      high - low,
+      Math.abs(high - prevClose),
+      Math.abs(low - prevClose)
+    )
+
+    trueRanges.push(tr / prevClose)
   }
 
-  return avg(ranges)
+  return avg(trueRanges)
 }
 
 export function getRangePercent(candles: Candle[], lookback = 12) {
   if (candles.length < lookback) return 0
 
-  const closes = candles
-    .slice(-lookback)
-    .map((c) => safeNumber(c.close))
-    .filter((value) => value > 0)
+  const slice = candles.slice(-lookback)
+  const highs = slice.map((c) => safeNumber(c.high)).filter((v) => v > 0)
+  const lows = slice.map((c) => safeNumber(c.low)).filter((v) => v > 0)
 
-  if (closes.length < lookback) return 0
+  if (highs.length < lookback || lows.length < lookback) return 0
 
-  const high = Math.max(...closes)
-  const low = Math.min(...closes)
+  const high = Math.max(...highs)
+  const low = Math.min(...lows)
 
   if (!high || !low) return 0
   return (high - low) / low
