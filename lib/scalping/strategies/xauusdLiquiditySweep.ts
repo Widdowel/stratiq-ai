@@ -59,6 +59,24 @@ function safeNumber(value: unknown): number {
   return Number.isFinite(n) ? n : 0
 }
 
+export type XauusdEvalResult = {
+  signal: ScalpSignal | null
+  passed: boolean
+  confidence: number
+  failedGates: string[]
+  prefligthFailed?: string
+}
+
+function xauPreflightFail(reason: string): XauusdEvalResult {
+  return {
+    signal: null,
+    passed: false,
+    confidence: 0,
+    failedGates: [],
+    prefligthFailed: reason
+  }
+}
+
 /**
  * XAU liquidity sweep detection. Unlike the FX VWAP strategy, this
  * relies on wicks not closes - which is only reliable now that Phase 1
@@ -71,8 +89,28 @@ export function runXauusdLiquiditySweep(
   candles5m: CandleWithTime[],
   now: Date = new Date()
 ): ScalpSignal | null {
+  return evaluateXauusd(symbol, candles1h, candles15m, candles5m, now).signal
+}
+
+export function runXauusdLiquiditySweepDebug(
+  symbol: string,
+  candles1h: CandleWithTime[],
+  candles15m: CandleWithTime[],
+  candles5m: CandleWithTime[],
+  now: Date = new Date()
+): XauusdEvalResult {
+  return evaluateXauusd(symbol, candles1h, candles15m, candles5m, now)
+}
+
+function evaluateXauusd(
+  symbol: string,
+  candles1h: CandleWithTime[],
+  candles15m: CandleWithTime[],
+  candles5m: CandleWithTime[],
+  now: Date
+): XauusdEvalResult {
   if (candles1h.length < 40 || candles15m.length < 40 || candles5m.length < 50) {
-    return null
+    return xauPreflightFail("INSUFFICIENT_CANDLES")
   }
 
   const last5m = candles5m[candles5m.length - 1]
@@ -80,7 +118,7 @@ export function runXauusdLiquiditySweep(
   const lastHigh = safeNumber(last5m.high)
   const lastLow = safeNumber(last5m.low)
 
-  if (!lastClose || !lastHigh || !lastLow) return null
+  if (!lastClose || !lastHigh || !lastLow) return xauPreflightFail("INVALID_OHLC")
 
   // -------- Session gate --------
   const inWindow = isInScalpWindow(symbol, now)
@@ -101,7 +139,7 @@ export function runXauusdLiquiditySweep(
     }
   }
 
-  if (!asianHigh || !asianLow) return null
+  if (!asianHigh || !asianLow) return xauPreflightFail("NO_ASIAN_RANGE")
 
   // -------- Sweep + reclaim detection --------
   const sweepHigh = lastHigh > asianHigh && lastClose <= asianHigh
@@ -113,7 +151,7 @@ export function runXauusdLiquiditySweep(
     ? "SHORT"
     : null
 
-  if (!sweepDirection) return null
+  if (!sweepDirection) return xauPreflightFail("NO_SWEEP_DETECTED")
 
   // -------- Rejection pattern confirms --------
   const bullishRejection =
@@ -166,7 +204,17 @@ export function runXauusdLiquiditySweep(
   ]
 
   const result = evaluateConfluence(gates, factors, CONFIDENCE_FLOOR)
-  if (!result.passed) return null
+  if (!result.passed) {
+    return {
+      signal: null,
+      passed: false,
+      confidence: result.confidence,
+      failedGates: result.failedGates
+    }
+  }
+
+  // Early exit: no sweep = no trade (type-narrowing)
+  if (!sweepDirection) return xauPreflightFail("NO_SWEEP_DIRECTION")
 
   // -------- Build signal --------
   const entry = lastClose
@@ -184,14 +232,14 @@ export function runXauusdLiquiditySweep(
   }
 
   const risk = Math.abs(entry - sl)
-  if (!risk) return null
+  if (!risk) return xauPreflightFail("ZERO_RISK")
 
   const breakEvenTrigger =
     sweepDirection === "LONG"
       ? entry + risk * BE_TRIGGER_FRACTION
       : entry - risk * BE_TRIGGER_FRACTION
 
-  return {
+  const signal: ScalpSignal = {
     id: `${symbol}-XAUUSD_LIQUIDITY_SWEEP-${sweepDirection}-${Date.now()}`,
     symbol,
     strategy: "XAUUSD_LIQUIDITY_SWEEP",
@@ -207,5 +255,12 @@ export function runXauusdLiquiditySweep(
       gates: result.gates,
       factors: result.factors
     }
+  }
+
+  return {
+    signal,
+    passed: true,
+    confidence: result.confidence,
+    failedGates: []
   }
 }

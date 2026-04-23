@@ -98,6 +98,14 @@ function findBreakoutBar(
   return null
 }
 
+export type BtcEvalResult = {
+  signal: ScalpSignal | null
+  passed: boolean
+  confidence: number
+  failedGates: string[]
+  prefligthFailed?: string
+}
+
 /**
  * Runs the BTC breakout + retest strategy on a fresh set of candles.
  * Returns a ScalpSignal or null.
@@ -113,13 +121,44 @@ export function runBtcBreakoutRetest(
   candles5m: Candle[],
   now: Date = new Date()
 ): ScalpSignal | null {
+  return evaluateBtc(symbol, candles1h, candles15m, candles5m, now).signal
+}
+
+/** Same logic but returns gate-level detail even on failure. */
+export function runBtcBreakoutRetestDebug(
+  symbol: string,
+  candles1h: Candle[],
+  candles15m: Candle[],
+  candles5m: Candle[],
+  now: Date = new Date()
+): BtcEvalResult {
+  return evaluateBtc(symbol, candles1h, candles15m, candles5m, now)
+}
+
+function preflightFail(reason: string): BtcEvalResult {
+  return {
+    signal: null,
+    passed: false,
+    confidence: 0,
+    failedGates: [],
+    prefligthFailed: reason
+  }
+}
+
+function evaluateBtc(
+  symbol: string,
+  candles1h: Candle[],
+  candles15m: Candle[],
+  candles5m: Candle[],
+  now: Date
+): BtcEvalResult {
   // -------- Pre-flight sanity --------
   if (candles1h.length < 60 || candles15m.length < 80 || candles5m.length < 20) {
-    return null
+    return preflightFail("INSUFFICIENT_CANDLES")
   }
 
   const lastPrice = safeNumber(candles5m[candles5m.length - 1].close)
-  if (!lastPrice) return null
+  if (!lastPrice) return preflightFail("INVALID_LAST_PRICE")
 
   // -------- HTF bias --------
   const closes1h = candles1h.map((c) => safeNumber(c.close))
@@ -128,7 +167,7 @@ export function runBtcBreakoutRetest(
   const htfBias: "LONG" | "SHORT" | "NEUTRAL" =
     ema20h > ema50h ? "LONG" : ema20h < ema50h ? "SHORT" : "NEUTRAL"
 
-  if (htfBias === "NEUTRAL") return null
+  if (htfBias === "NEUTRAL") return preflightFail("HTF_BIAS_NEUTRAL")
 
   // -------- 15m squeeze --------
   const closes15m = candles15m.map((c) => safeNumber(c.close))
@@ -137,7 +176,7 @@ export function runBtcBreakoutRetest(
   // -------- Breakout bar detection --------
   const breakoutDir = htfBias
   const breakout = findBreakoutBar(candles15m, breakoutDir, BREAKOUT_LOOKBACK)
-  if (!breakout) return null
+  if (!breakout) return preflightFail("NO_BREAKOUT_BAR")
 
   // -------- Retest check on 5m --------
   const closes5m = candles5m.map((c) => safeNumber(c.close))
@@ -194,7 +233,15 @@ export function runBtcBreakoutRetest(
   ]
 
   const result = evaluateConfluence(gates, factors, CONFIDENCE_FLOOR)
-  if (!result.passed) return null
+
+  if (!result.passed) {
+    return {
+      signal: null,
+      passed: false,
+      confidence: result.confidence,
+      failedGates: result.failedGates
+    }
+  }
 
   // -------- Build signal --------
   const entry = lastPrice
@@ -216,14 +263,14 @@ export function runBtcBreakoutRetest(
   }
 
   const risk = Math.abs(entry - sl)
-  if (!risk) return null
+  if (!risk) return preflightFail("ZERO_RISK")
 
   const breakEvenTrigger =
     breakoutDir === "LONG"
       ? entry + risk * BE_TRIGGER_FRACTION
       : entry - risk * BE_TRIGGER_FRACTION
 
-  return {
+  const signal: ScalpSignal = {
     id: `${symbol}-BTC_BREAKOUT_RETEST-${breakoutDir}-${Date.now()}`,
     symbol,
     strategy: "BTC_BREAKOUT_RETEST",
@@ -239,5 +286,12 @@ export function runBtcBreakoutRetest(
       gates: result.gates,
       factors: result.factors
     }
+  }
+
+  return {
+    signal,
+    passed: true,
+    confidence: result.confidence,
+    failedGates: []
   }
 }

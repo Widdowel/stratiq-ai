@@ -66,6 +66,24 @@ function pips(n: number): number {
   return n * PIP
 }
 
+export type EurusdEvalResult = {
+  signal: ScalpSignal | null
+  passed: boolean
+  confidence: number
+  failedGates: string[]
+  prefligthFailed?: string
+}
+
+function eurPreflightFail(reason: string): EurusdEvalResult {
+  return {
+    signal: null,
+    passed: false,
+    confidence: 0,
+    failedGates: [],
+    prefligthFailed: reason
+  }
+}
+
 export function runEurusdVwapPullback(
   symbol: string,
   candles1h: Candle[],
@@ -73,13 +91,33 @@ export function runEurusdVwapPullback(
   candles5m: Candle[],
   now: Date = new Date()
 ): ScalpSignal | null {
+  return evaluateEurusd(symbol, candles1h, candles15m, candles5m, now).signal
+}
+
+export function runEurusdVwapPullbackDebug(
+  symbol: string,
+  candles1h: Candle[],
+  candles15m: Candle[],
+  candles5m: Candle[],
+  now: Date = new Date()
+): EurusdEvalResult {
+  return evaluateEurusd(symbol, candles1h, candles15m, candles5m, now)
+}
+
+function evaluateEurusd(
+  symbol: string,
+  candles1h: Candle[],
+  candles15m: Candle[],
+  candles5m: Candle[],
+  now: Date
+): EurusdEvalResult {
   if (candles1h.length < 40 || candles15m.length < 60 || candles5m.length < 30) {
-    return null
+    return eurPreflightFail("INSUFFICIENT_CANDLES")
   }
 
   const last5m = candles5m[candles5m.length - 1]
   const lastPrice = safeNumber(last5m.close)
-  if (!lastPrice) return null
+  if (!lastPrice) return eurPreflightFail("INVALID_LAST_PRICE")
 
   // -------- 15m trend --------
   const closes15m = candles15m.map((c) => safeNumber(c.close))
@@ -88,7 +126,7 @@ export function runEurusdVwapPullback(
   const bias15m: "LONG" | "SHORT" | "NEUTRAL" =
     ema9 > ema21 ? "LONG" : ema9 < ema21 ? "SHORT" : "NEUTRAL"
 
-  if (bias15m === "NEUTRAL") return null
+  if (bias15m === "NEUTRAL") return eurPreflightFail("TREND_NEUTRAL")
 
   // -------- ADX --------
   const adx15m = adx(candles15m, 14)
@@ -175,7 +213,14 @@ export function runEurusdVwapPullback(
   ]
 
   const result = evaluateConfluence(gates, factors, CONFIDENCE_FLOOR)
-  if (!result.passed) return null
+  if (!result.passed) {
+    return {
+      signal: null,
+      passed: false,
+      confidence: result.confidence,
+      failedGates: result.failedGates
+    }
+  }
 
   // -------- Build signal --------
   const entry = lastPrice
@@ -195,14 +240,14 @@ export function runEurusdVwapPullback(
   }
 
   const risk = Math.abs(entry - sl)
-  if (!risk) return null
+  if (!risk) return eurPreflightFail("ZERO_RISK")
 
   const breakEvenTrigger =
     bias15m === "LONG"
       ? entry + risk * BE_TRIGGER_FRACTION
       : entry - risk * BE_TRIGGER_FRACTION
 
-  return {
+  const signal: ScalpSignal = {
     id: `${symbol}-EURUSD_VWAP_PULLBACK-${bias15m}-${Date.now()}`,
     symbol,
     strategy: "EURUSD_VWAP_PULLBACK",
@@ -218,5 +263,12 @@ export function runEurusdVwapPullback(
       gates: result.gates,
       factors: result.factors
     }
+  }
+
+  return {
+    signal,
+    passed: true,
+    confidence: result.confidence,
+    failedGates: []
   }
 }

@@ -24,9 +24,18 @@ of the strategy's edge.
 import type { Candle } from "@/lib/providers"
 import type { ScalpSignal } from "@/lib/scalping/types"
 import type { CandleWithTime } from "@/lib/scalping/shared/volumeProfile"
-import { runBtcBreakoutRetest } from "@/lib/scalping/strategies/btcBreakoutRetest"
-import { runEurusdVwapPullback } from "@/lib/scalping/strategies/eurusdVwapPullback"
-import { runXauusdLiquiditySweep } from "@/lib/scalping/strategies/xauusdLiquiditySweep"
+import {
+  runBtcBreakoutRetest,
+  runBtcBreakoutRetestDebug
+} from "@/lib/scalping/strategies/btcBreakoutRetest"
+import {
+  runEurusdVwapPullback,
+  runEurusdVwapPullbackDebug
+} from "@/lib/scalping/strategies/eurusdVwapPullback"
+import {
+  runXauusdLiquiditySweep,
+  runXauusdLiquiditySweepDebug
+} from "@/lib/scalping/strategies/xauusdLiquiditySweep"
 import { applyAdaptiveRR } from "@/lib/scalping/enhancements/adaptiveRR"
 
 export type BacktestTrade = {
@@ -65,6 +74,27 @@ function pickStrategyRunner(symbol: string) {
   if (symbol === "BTCUSDT") return runBtcBreakoutRetest
   if (symbol === "EURUSD" || symbol === "GBPUSD") return runEurusdVwapPullback
   if (symbol === "XAUUSD" || symbol === "XAUUSDT") return runXauusdLiquiditySweep
+  return null
+}
+
+type StrategyDebugRunner = (
+  symbol: string,
+  candles1h: CandleWithTime[],
+  candles15m: CandleWithTime[],
+  candles5m: CandleWithTime[],
+  now?: Date
+) => {
+  signal: ScalpSignal | null
+  passed: boolean
+  confidence: number
+  failedGates: string[]
+  prefligthFailed?: string
+}
+
+function pickDebugRunner(symbol: string): StrategyDebugRunner | null {
+  if (symbol === "BTCUSDT") return runBtcBreakoutRetestDebug as StrategyDebugRunner
+  if (symbol === "EURUSD" || symbol === "GBPUSD") return runEurusdVwapPullbackDebug as StrategyDebugRunner
+  if (symbol === "XAUUSD" || symbol === "XAUUSDT") return runXauusdLiquiditySweepDebug as StrategyDebugRunner
   return null
 }
 
@@ -288,4 +318,90 @@ function summarize(symbol: string, trades: BacktestTrade[]): BacktestResult {
     maxDrawdownR: maxDD,
     cumulativeR: cumulative
   }
+}
+
+/* =========================
+DIAGNOSTIC MODE
+
+Runs the strategy debug variant on every bar and aggregates which
+gates (or preflight conditions) block the most. Useful to understand
+whether a backtest with 0 trades is hitting too-strict gates or
+simply no setup ever formed.
+========================= */
+
+export type BacktestDiagnostic = {
+  symbol: string
+  barsScanned: number
+  signalsFired: number
+  gateFailCounts: Record<string, number>
+  preflightFailCounts: Record<string, number>
+  lastFailure?: {
+    failedGates: string[]
+    confidence: number
+  }
+}
+
+export function runBacktestDiagnostic(
+  symbol: string,
+  candles1h: CandleWithTime[],
+  candles15m: CandleWithTime[],
+  candles5m: CandleWithTime[],
+  options: {
+    startOffset?: number
+  } = {}
+): BacktestDiagnostic {
+  const { startOffset = 80 } = options
+  const debugRunner = pickDebugRunner(symbol)
+
+  const diagnostic: BacktestDiagnostic = {
+    symbol,
+    barsScanned: 0,
+    signalsFired: 0,
+    gateFailCounts: {},
+    preflightFailCounts: {}
+  }
+
+  if (!debugRunner) return diagnostic
+
+  for (let i = startOffset; i < candles5m.length; i++) {
+    const bar = candles5m[i]
+    const now = bar.openTime ? new Date(bar.openTime) : new Date()
+
+    const history5m = candles5m.slice(0, i + 1)
+    const alignTime = bar.openTime ?? Number.POSITIVE_INFINITY
+    const history1h = candles1h.filter(
+      (c) => (c.openTime ?? 0) <= alignTime
+    )
+    const history15m = candles15m.filter(
+      (c) => (c.openTime ?? 0) <= alignTime
+    )
+
+    if (history1h.length < 60 || history15m.length < 80 || history5m.length < 30) {
+      continue
+    }
+
+    diagnostic.barsScanned += 1
+    const evaluation = debugRunner(symbol, history1h, history15m, history5m, now)
+
+    if (evaluation.passed) {
+      diagnostic.signalsFired += 1
+      continue
+    }
+
+    if (evaluation.prefligthFailed) {
+      const k = evaluation.prefligthFailed
+      diagnostic.preflightFailCounts[k] = (diagnostic.preflightFailCounts[k] ?? 0) + 1
+    }
+
+    for (const gate of evaluation.failedGates) {
+      diagnostic.gateFailCounts[gate] = (diagnostic.gateFailCounts[gate] ?? 0) + 1
+    }
+
+    diagnostic.lastFailure = {
+      failedGates: evaluation.failedGates,
+      confidence: evaluation.confidence
+    }
+  }
+
+  return diagnostic
 }
