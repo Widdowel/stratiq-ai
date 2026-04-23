@@ -1,0 +1,130 @@
+/* =========================
+BACKTEST DATA LOADER
+
+Pulls historical candles from Binance (crypto) or TwelveData (FX/gold).
+Designed to be called from a CLI script (scripts/backtest.ts) or from
+an admin API route. Not used on hot paths.
+
+Binance klines limit = 1500 bars per request. For longer history
+use iterative pagination (endTime param).
+========================= */
+
+import type { CandleWithTime } from "@/lib/scalping/shared/volumeProfile"
+
+function safeNumber(value: unknown): number {
+  const n = Number(value)
+  return Number.isFinite(n) ? n : 0
+}
+
+async function fetchJson(url: string): Promise<any> {
+  const res = await fetch(url, { cache: "no-store" })
+  if (!res.ok) {
+    throw new Error(`HTTP ${res.status} ${res.statusText} for ${url}`)
+  }
+  return res.json()
+}
+
+/* =========================
+BINANCE (BTCUSDT, crypto)
+========================= */
+
+const BINANCE_INTERVALS = {
+  "5m": "5m",
+  "15m": "15m",
+  "1h": "1h",
+  "4h": "4h",
+  "1d": "1d"
+} as const
+
+export type BinanceInterval = keyof typeof BINANCE_INTERVALS
+
+export async function fetchBinanceHistory(
+  symbol: string,
+  interval: BinanceInterval,
+  bars = 1000
+): Promise<CandleWithTime[]> {
+  const limit = Math.min(bars, 1500)
+  const url = `https://fapi.binance.com/fapi/v1/klines?symbol=${symbol}&interval=${BINANCE_INTERVALS[interval]}&limit=${limit}`
+  const data = await fetchJson(url)
+
+  if (!Array.isArray(data)) return []
+
+  return data.map((row: any[]): CandleWithTime => ({
+    open: safeNumber(row[1]),
+    high: safeNumber(row[2]),
+    low: safeNumber(row[3]),
+    close: safeNumber(row[4]),
+    volume: safeNumber(row[5]),
+    openTime: safeNumber(row[0])
+  }))
+}
+
+/* =========================
+TWELVEDATA (EURUSD, GBPUSD, XAUUSD)
+========================= */
+
+export type TwelveDataInterval = "5min" | "15min" | "1h" | "4h" | "1day"
+
+function formatForex(symbol: string): string {
+  if (symbol === "XAUUSD" || symbol === "XAUUSDT") return "XAU/USD"
+  if (symbol === "EURUSD") return "EUR/USD"
+  if (symbol === "GBPUSD") return "GBP/USD"
+  return symbol
+}
+
+export async function fetchTwelveDataHistory(
+  symbol: string,
+  interval: TwelveDataInterval,
+  bars = 1000,
+  apiKey?: string
+): Promise<CandleWithTime[]> {
+  const key = apiKey ?? process.env.TWELVE_KEY
+  if (!key) throw new Error("TWELVE_KEY missing")
+
+  const size = Math.min(bars, 5000)
+  const url = `https://api.twelvedata.com/time_series?symbol=${formatForex(symbol)}&interval=${interval}&outputsize=${size}&apikey=${key}`
+
+  const data = await fetchJson(url)
+  if (!data || !Array.isArray(data.values)) return []
+
+  // TwelveData returns newest first; reverse to chronological.
+  return [...data.values].reverse().map((row: any): CandleWithTime => ({
+    open: safeNumber(row.open),
+    high: safeNumber(row.high),
+    low: safeNumber(row.low),
+    close: safeNumber(row.close),
+    volume: row.volume !== undefined ? safeNumber(row.volume) : 0,
+    openTime: new Date(row.datetime).getTime()
+  }))
+}
+
+/* =========================
+UNIFIED LOADER
+========================= */
+
+export type BacktestTimeframes = {
+  candles1h: CandleWithTime[]
+  candles15m: CandleWithTime[]
+  candles5m: CandleWithTime[]
+}
+
+export async function loadBacktestData(
+  symbol: string,
+  bars = 1000
+): Promise<BacktestTimeframes> {
+  if (symbol === "BTCUSDT" || symbol === "ETHUSDT") {
+    const [c1h, c15m, c5m] = await Promise.all([
+      fetchBinanceHistory(symbol, "1h", Math.ceil(bars / 12)),
+      fetchBinanceHistory(symbol, "15m", Math.ceil(bars / 3)),
+      fetchBinanceHistory(symbol, "5m", bars)
+    ])
+    return { candles1h: c1h, candles15m: c15m, candles5m: c5m }
+  }
+
+  const [c1h, c15m, c5m] = await Promise.all([
+    fetchTwelveDataHistory(symbol, "1h", Math.ceil(bars / 12)),
+    fetchTwelveDataHistory(symbol, "15min", Math.ceil(bars / 3)),
+    fetchTwelveDataHistory(symbol, "5min", bars)
+  ])
+  return { candles1h: c1h, candles15m: c15m, candles5m: c5m }
+}
