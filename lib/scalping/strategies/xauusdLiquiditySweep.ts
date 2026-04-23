@@ -139,12 +139,24 @@ function evaluateXauusd(
     }
   }
 
-  // Prior day H/L is a second liquidity pool. Many XAU sweeps target PDH/PDL
-  // rather than the Asian range, especially on days without a clean Asian
-  // consolidation.
+  // XAU sweeps target multiple liquidity magnets, not just the Asian range:
+  // - Asian H/L (overnight consolidation)
+  // - Prior Day H/L (daily liquidity pool)
+  // - Recent 1h-level highs/lows over the last 4 hours (session's own extremes)
   const pdrEarly = getPriorDayRange(candles5m)
   const pdh = pdrEarly?.high ?? 0
   const pdl = pdrEarly?.low ?? 0
+
+  // Last 4h of 5m candles = 48 bars. Find the extremes we haven't swept yet.
+  const recentSlice = candles5m.slice(-48, -6)
+  const recentH =
+    recentSlice.length >= 20
+      ? Math.max(...recentSlice.map((c) => safeNumber(c.high)))
+      : 0
+  const recentL =
+    recentSlice.length >= 20
+      ? Math.min(...recentSlice.map((c) => safeNumber(c.low)).filter((v) => v > 0))
+      : 0
 
   if (!asianHigh || !asianLow) return xauPreflightFail("NO_ASIAN_RANGE")
 
@@ -164,11 +176,13 @@ function evaluateXauusd(
 
   const lowLevels = [
     { level: asianLow, source: "ASIAN" as const },
-    ...(pdl > 0 ? [{ level: pdl, source: "PDH_PDL" as const }] : [])
+    ...(pdl > 0 ? [{ level: pdl, source: "PDH_PDL" as const }] : []),
+    ...(recentL > 0 ? [{ level: recentL, source: "PDH_PDL" as const }] : [])
   ]
   const highLevels = [
     { level: asianHigh, source: "ASIAN" as const },
-    ...(pdh > 0 ? [{ level: pdh, source: "PDH_PDL" as const }] : [])
+    ...(pdh > 0 ? [{ level: pdh, source: "PDH_PDL" as const }] : []),
+    ...(recentH > 0 ? [{ level: recentH, source: "PDH_PDL" as const }] : [])
   ]
 
   for (let i = candles5m.length - SWEEP_LOOKBACK; i < candles5m.length; i++) {

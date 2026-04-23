@@ -48,7 +48,8 @@ import {
 import { isInScalpWindow } from "@/lib/scalping/shared/scalpSessions"
 import type { ScalpSignal } from "@/lib/scalping/types"
 
-const CONFIDENCE_FLOOR = 80
+const CONFIDENCE_FLOOR = 83 // raised from 80 - EUR pullbacks are bimodal, only
+                             // the highest-conviction signals reliably run
 const PIP = 0.0001 // EURUSD pip
 const SL_BUFFER_PIPS = 4 // widened from 2 - EUR 5m ATR ~3-4 pips, 2 was wick-vulnerable
 const RR_TARGET = 0.5 // ultra-scalp - EUR is bimodal, tight TP captures the partial moves
