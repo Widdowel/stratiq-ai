@@ -6,8 +6,11 @@ export type SignalDirection = "BUY" | "SELL"
 export type SignalTimeframe = "SHORT" | "MEDIUM" | "LONG"
 
 export type Candle = {
+  open: number
+  high: number
+  low: number
   close: number
-  volume?: number
+  volume: number
 }
 
 export type VolatilityState =
@@ -168,17 +171,28 @@ ATR / REALIZED VOL
 export function calculateATRPercent(candles: Candle[], period = 14) {
   if (candles.length < period + 1) return 0
 
-  const ranges: number[] = []
+  const trueRanges: number[] = []
 
   for (let i = candles.length - period; i < candles.length; i++) {
-    const current = safeNumber(candles[i]?.close)
-    const previous = safeNumber(candles[i - 1]?.close)
+    const c = candles[i]
+    const p = candles[i - 1]
 
-    if (!current || !previous) continue
-    ranges.push(Math.abs(current - previous) / previous)
+    const high = safeNumber(c?.high)
+    const low = safeNumber(c?.low)
+    const prevClose = safeNumber(p?.close)
+
+    if (!high || !low || !prevClose) continue
+
+    const tr = Math.max(
+      high - low,
+      Math.abs(high - prevClose),
+      Math.abs(low - prevClose)
+    )
+
+    trueRanges.push(tr / prevClose)
   }
 
-  return avg(ranges)
+  return avg(trueRanges)
 }
 
 export function calculateReturns(candles: Candle[], period = 14) {

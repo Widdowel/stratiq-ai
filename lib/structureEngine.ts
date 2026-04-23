@@ -6,8 +6,11 @@ export type SignalDirection = "BUY" | "SELL"
 export type SignalTimeframe = "SHORT" | "MEDIUM" | "LONG"
 
 export type Candle = {
+  open: number
+  high: number
+  low: number
   close: number
-  volume?: number
+  volume: number
 }
 
 export type StructureLevelType =
@@ -112,19 +115,19 @@ SWING DETECTION
 
 export function getSwingHighs(
   candles: Candle[],
-  leftBars = 2,
-  rightBars = 2
+  leftBars = 3,
+  rightBars = 3
 ): StructureLevel[] {
   const swings: StructureLevel[] = []
 
   for (let i = leftBars; i < candles.length - rightBars; i++) {
-    const current = safeNumber(candles[i]?.close)
+    const current = safeNumber(candles[i]?.high)
     if (!current) continue
 
     let isSwingHigh = true
 
     for (let l = 1; l <= leftBars; l++) {
-      if (safeNumber(candles[i - l]?.close) >= current) {
+      if (safeNumber(candles[i - l]?.high) >= current) {
         isSwingHigh = false
         break
       }
@@ -133,7 +136,7 @@ export function getSwingHighs(
     if (!isSwingHigh) continue
 
     for (let r = 1; r <= rightBars; r++) {
-      if (safeNumber(candles[i + r]?.close) > current) {
+      if (safeNumber(candles[i + r]?.high) > current) {
         isSwingHigh = false
         break
       }
@@ -154,19 +157,20 @@ export function getSwingHighs(
 
 export function getSwingLows(
   candles: Candle[],
-  leftBars = 2,
-  rightBars = 2
+  leftBars = 3,
+  rightBars = 3
 ): StructureLevel[] {
   const swings: StructureLevel[] = []
 
   for (let i = leftBars; i < candles.length - rightBars; i++) {
-    const current = safeNumber(candles[i]?.close)
+    const current = safeNumber(candles[i]?.low)
     if (!current) continue
 
     let isSwingLow = true
 
     for (let l = 1; l <= leftBars; l++) {
-      if (safeNumber(candles[i - l]?.close) <= current) {
+      const prev = safeNumber(candles[i - l]?.low)
+      if (prev !== 0 && prev <= current) {
         isSwingLow = false
         break
       }
@@ -175,7 +179,8 @@ export function getSwingLows(
     if (!isSwingLow) continue
 
     for (let r = 1; r <= rightBars; r++) {
-      if (safeNumber(candles[i + r]?.close) < current) {
+      const next = safeNumber(candles[i + r]?.low)
+      if (next !== 0 && next < current) {
         isSwingLow = false
         break
       }
@@ -366,19 +371,21 @@ export function detectBreakoutState(
 ): "NONE" | "BULLISH_BREAKOUT" | "BEARISH_BREAKOUT" {
   if (candles.length < 3) return "NONE"
 
-  const last = safeNumber(candles[candles.length - 1]?.close)
-  const prev = safeNumber(candles[candles.length - 2]?.close)
+  const lastClose = safeNumber(candles[candles.length - 1]?.close)
+  const lastHigh = safeNumber(candles[candles.length - 1]?.high)
+  const lastLow = safeNumber(candles[candles.length - 1]?.low)
+  const prevClose = safeNumber(candles[candles.length - 2]?.close)
 
-  if (!last || !prev) return "NONE"
+  if (!lastClose || !lastHigh || !lastLow || !prevClose) return "NONE"
 
   if (nearestResistance) {
-    if (prev <= nearestResistance.high && last > nearestResistance.high) {
+    if (prevClose <= nearestResistance.high && lastClose > nearestResistance.high) {
       return "BULLISH_BREAKOUT"
     }
   }
 
   if (nearestSupport) {
-    if (prev >= nearestSupport.low && last < nearestSupport.low) {
+    if (prevClose >= nearestSupport.low && lastClose < nearestSupport.low) {
       return "BEARISH_BREAKOUT"
     }
   }

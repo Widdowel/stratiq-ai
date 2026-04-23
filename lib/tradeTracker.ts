@@ -1,5 +1,6 @@
 import fs from "node:fs"
 import path from "node:path"
+import { recordStopLossHit } from "@/lib/cooldown"
 
 export type TradeStatus =
   | "SIGNAL"
@@ -600,6 +601,11 @@ export function closeTrade(
   trade.pnl = result.pnl
 
   saveTradesToFile(trades)
+
+  if (closeReason === "SL") {
+    recordStopLossHit(trade.symbol)
+  }
+
   return trade
 }
 
